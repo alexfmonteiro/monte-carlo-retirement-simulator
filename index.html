@@ -1,0 +1,3261 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Monte Carlo Retirement Simulator | SWR Strategy</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        'display': ['Outfit', 'sans-serif'],
+                        'mono': ['JetBrains Mono', 'monospace'],
+                    },
+                    colors: {
+                        'midnight': '#0a0e17',
+                        'deep': '#111827',
+                        'surface': '#1a2234',
+                        'accent': '#10b981',
+                        'accent-dim': '#059669',
+                        'danger': '#ef4444',
+                        'warning': '#f59e0b',
+                        'info': '#3b82f6',
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        * {
+            scrollbar-width: thin;
+            scrollbar-color: #10b981 #1a2234;
+        }
+        *::-webkit-scrollbar {
+            width: 6px;
+        }
+        *::-webkit-scrollbar-track {
+            background: #1a2234;
+        }
+        *::-webkit-scrollbar-thumb {
+            background: #10b981;
+            border-radius: 3px;
+        }
+        .gradient-border {
+            background: linear-gradient(135deg, #10b981 0%, #3b82f6 50%, #8b5cf6 100%);
+            padding: 1px;
+        }
+        .gradient-border-inner {
+            background: #1a2234;
+        }
+        .stat-glow {
+            box-shadow: 0 0 40px rgba(16, 185, 129, 0.15);
+        }
+        .input-focus:focus {
+            box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.3);
+        }
+        @keyframes pulse-slow {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+        .pulse-slow {
+            animation: pulse-slow 2s ease-in-out infinite;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .fade-in {
+            animation: fadeIn 0.5s ease-out forwards;
+        }
+        .chart-container {
+            position: relative;
+            height: 300px;
+        }
+    </style>
+</head>
+<body class="bg-midnight text-gray-100 font-display min-h-screen">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef, useMemo } = React;
+
+        // ============================================
+        // MONTE CARLO SIMULATION ENGINE
+        // ============================================
+        
+        class MonteCarloEngine {
+            constructor(params) {
+                this.params = params;
+            }
+
+            // Box-Muller transform for normal distribution
+            randomNormal(mean = 0, std = 1) {
+                const u1 = Math.random();
+                const u2 = Math.random();
+                const z0 = Math.sqrt(-2.0 * Math.log(u1)) * Math.cos(2.0 * Math.PI * u2);
+                return z0 * std + mean;
+            }
+
+            // Generate random number from Student's T distribution (fatter tails)
+            randomStudentT(mean, std, df) {
+                // Generate T-distributed random variable
+                // T = Z / sqrt(V/df) where Z ~ N(0,1) and V ~ Chi-squared(df)
+                const z = this.randomNormal(0, 1);
+                
+                // Generate chi-squared by summing df squared normals
+                let chiSquared = 0;
+                for (let i = 0; i < df; i++) {
+                    const n = this.randomNormal(0, 1);
+                    chiSquared += n * n;
+                }
+                
+                // Scale factor to match desired volatility
+                // T-distribution has variance df/(df-2), so we adjust
+                const scaleFactor = df > 2 ? Math.sqrt((df - 2) / df) : 1;
+                const t = z / Math.sqrt(chiSquared / df) * scaleFactor;
+                
+                return mean + std * t;
+            }
+
+            // Generate return with appropriate distribution
+            generateReturn(mean, std) {
+                if (this.params.useStudentT) {
+                    return this.randomStudentT(mean, std, this.params.degreesOfFreedom);
+                }
+                return this.randomNormal(mean, std);
+            }
+
+            // Generate IPCA for the year (correlated with economic conditions)
+            generateIPCA(equityReturn) {
+                if (!this.params.useIPCAModel) {
+                    return this.params.inflation / 100;
+                }
+                
+                // IPCA tends to be higher during economic stress (negative equity returns)
+                const baseIPCA = this.params.expectedIPCA / 100;
+                const ipcaVol = this.params.ipcaVolatility / 100;
+                
+                // Slight negative correlation with equity (-0.2)
+                const equityMean = this.params.equityReturn / 100;
+                const equityVol = this.params.equityVolatility / 100;
+                const correlatedShock = -0.2 * (equityReturn - equityMean) / equityVol;
+                const randomShock = this.randomNormal(0, ipcaVol);
+                
+                // IPCA bounded between 0% and 15%
+                const ipca = Math.max(0, Math.min(0.15, baseIPCA + correlatedShock * ipcaVol + randomShock));
+                return ipca;
+            }
+
+            // Calculate bond return as IPCA + Real Spread
+            generateBondReturn(ipca) {
+                if (!this.params.useIPCAModel) {
+                    return this.generateReturn(this.params.bondReturn / 100, this.params.bondVolatility / 100);
+                }
+                
+                // Real spread varies slightly around target
+                const realSpread = this.params.realSpread / 100;
+                const spreadVariation = this.randomNormal(0, 0.005); // ±0.5% variation
+                
+                // Nominal return = IPCA + Real Spread + small random component
+                return ipca + realSpread + spreadVariation;
+            }
+
+            // Calculate dynamic correlation based on market stress
+            getDynamicCorrelation(equityReturn) {
+                if (!this.params.useDynamicCorrelation) {
+                    return this.params.baseCorrelation;
+                }
+                
+                const baseCorr = this.params.baseCorrelation;
+                const stressMult = this.params.stressCorrelationMultiplier;
+                const equityMean = this.params.equityReturn / 100;
+                const equityVol = this.params.equityVolatility / 100;
+                
+                // Measure stress: how many std devs below mean
+                const zScore = (equityReturn - equityMean) / equityVol;
+                
+                if (zScore < -1) {
+                    // Stress scenario: correlation becomes more negative (flight to USD)
+                    const stressFactor = Math.min(Math.abs(zScore) - 1, 2) / 2;
+                    return Math.max(-0.9, baseCorr * (1 + stressFactor * (stressMult - 1)));
+                } else if (zScore > 1) {
+                    // Boom scenario: correlation weakens (moves toward 0)
+                    const boomFactor = Math.min(zScore - 1, 2) / 2;
+                    return baseCorr * (1 - boomFactor * 0.5);
+                }
+                
+                return baseCorr;
+            }
+
+            // Calculate tax on withdrawal
+            calculateTax(withdrawalUSD, gainRatio, bondAllocation) {
+                if (!this.params.useTaxModel) {
+                    return 0;
+                }
+                
+                // Estimate gains vs principal
+                const equityWithdrawal = withdrawalUSD * (1 - bondAllocation);
+                const bondWithdrawal = withdrawalUSD * bondAllocation;
+                
+                // Tax on equity gains (Irish ETFs: 15% on gains only)
+                const equityTax = equityWithdrawal * gainRatio * (this.params.equityTaxRate / 100);
+                
+                // Tax on fixed income (simplified: 15% on income portion)
+                const bondTax = bondWithdrawal * gainRatio * (this.params.fixedIncomeTaxRate / 100);
+                
+                return equityTax + bondTax;
+            }
+
+            // Generate correlated random returns
+            generateCorrelatedReturns(correlation) {
+                const z1 = this.randomNormal();
+                const z2 = this.randomNormal();
+                const correlatedZ2 = correlation * z1 + Math.sqrt(1 - correlation * correlation) * z2;
+                return [z1, correlatedZ2];
+            }
+
+            // Simulate currency dynamics with dynamic correlation
+            simulateCurrency(equityReturn, baseFX, volatilityFX = 0.15) {
+                // Get dynamic correlation based on market stress
+                const correlation = this.getDynamicCorrelation(equityReturn);
+                const [_, fxShock] = this.generateCorrelatedReturns(correlation);
+                
+                // Mean reversion component
+                const meanFX = this.params.initialFX;
+                const reversionSpeed = 0.1;
+                const drift = reversionSpeed * (meanFX - baseFX) / meanFX;
+                
+                // Stronger FX move when equity is negative
+                const stressMultiplier = equityReturn < 0 ? 1.3 : 1.0;
+                const fxReturn = drift + fxShock * volatilityFX * stressMultiplier;
+                
+                return baseFX * (1 + fxReturn);
+            }
+
+            // Apply Guyton-Klinger rules
+            applyGuytonKlinger(currentWithdrawal, portfolioValue, initialWithdrawalRate, previousReturn, inflation) {
+                const currentRate = currentWithdrawal / portfolioValue;
+                const { preservationThreshold, prosperityThreshold, adjustmentPercent, applyInflationRule } = this.params;
+                
+                let newWithdrawal = currentWithdrawal;
+                let ruleApplied = null;
+
+                // Inflation Rule: Don't adjust for inflation if previous year return was negative
+                if (applyInflationRule && previousReturn < 0) {
+                    // Skip inflation adjustment
+                    ruleApplied = 'inflation_skip';
+                } else {
+                    newWithdrawal *= (1 + inflation);
+                }
+
+                // Preservation Rule: If current rate > initial rate * (1 + threshold), reduce
+                if (currentRate > initialWithdrawalRate * (1 + preservationThreshold)) {
+                    newWithdrawal *= (1 - adjustmentPercent);
+                    ruleApplied = 'preservation';
+                }
+                
+                // Prosperity Rule: If current rate < initial rate * (1 - threshold), increase
+                if (currentRate < initialWithdrawalRate * (1 - prosperityThreshold)) {
+                    newWithdrawal *= (1 + adjustmentPercent);
+                    ruleApplied = 'prosperity';
+                }
+
+                return { withdrawal: newWithdrawal, ruleApplied };
+            }
+
+            // Run single simulation path
+            runSimulation() {
+                const {
+                    initialPortfolioUSD,
+                    initialPortfolioBRL,
+                    initialFX,
+                    withdrawalRate,
+                    equityReturn,
+                    equityVolatility,
+                    bondReturn,
+                    bondVolatility,
+                    inflation,
+                    years,
+                    tentInitialBondPercent,
+                    tentDuration,
+                    targetBondPercent,
+                    useBucketStrategy,
+                    bucketYears,
+                    useMinimumWithdrawal,
+                    minimumWithdrawalBRL
+                } = this.params;
+
+                // USD portfolio (equity + bonds, subject to FX variation)
+                let portfolioUSD = initialPortfolioUSD;
+                let currentFX = initialFX;
+                
+                // BRL portfolio (Brazilian fixed income, no FX exposure)
+                let portfolioBRLFixed = initialPortfolioBRL;
+                
+                // Total portfolio in BRL
+                let portfolioBRL = portfolioUSD * currentFX + portfolioBRLFixed;
+                
+                // Initial allocation for USD portfolio only
+                let bondAllocation = tentInitialBondPercent / 100;
+                let equityAllocation = 1 - bondAllocation;
+                
+                // Separate tracking for USD portfolio (bucket strategy applies here)
+                let bondPortionUSD = portfolioUSD * bondAllocation;
+                let equityPortionUSD = portfolioUSD * equityAllocation;
+                
+                // Initial withdrawal calculated on total portfolio in BRL
+                const totalInitialPortfolioBRL = portfolioUSD * initialFX + initialPortfolioBRL;
+                const initialWithdrawalBRL = totalInitialPortfolioBRL * (withdrawalRate / 100);
+                let currentWithdrawalUSD = initialWithdrawalBRL / initialFX;
+                const initialWithdrawalRate = withdrawalRate / 100;
+                
+                let previousReturn = 0;
+                
+                // Track consecutive negative returns for constraint
+                let consecutiveNegativeYears = 0;
+                
+                // Stress period tracking (now: when minimum withdrawal was enforced)
+                let inStressPeriod = false;
+                let currentStressStart = null;
+                let currentStressExtraWithdrawn = 0; // Extra amount withdrawn above recommended
+                
+                const history = {
+                    portfolioUSD: [portfolioUSD],
+                    portfolioBRL: [portfolioBRL],
+                    withdrawalBRL: [currentWithdrawalUSD * currentFX],
+                    withdrawalUSD: [currentWithdrawalUSD],
+                    recommendedWithdrawalBRL: [currentWithdrawalUSD * currentFX], // What G-K would have recommended
+                    fxRate: [currentFX],
+                    bondAllocation: [bondAllocation * 100],
+                    rulesApplied: [null],
+                    minimumEnforced: [false], // Track when minimum was enforced
+                    failed: false,
+                    failureYear: null,
+                    failureType: null,
+                    failureCause: null,
+                    // Stress tracking (periods where minimum withdrawal was enforced)
+                    stressPeriods: [], // Array of {startYear, endYear, duration, totalExtraWithdrawn, recovered}
+                    yearlyStressData: [{ minimumEnforced: false, extraWithdrawn: 0, percentExtra: 0 }],
+                    withdrawalSource: ['initial']
+                };
+
+                for (let year = 1; year <= years; year++) {
+                    // Check if already failed
+                    if (history.failed) {
+                        // Pad remaining years
+                        history.portfolioUSD.push(0);
+                        history.portfolioBRL.push(0);
+                        history.withdrawalBRL.push(0);
+                        history.withdrawalUSD.push(0);
+                        history.recommendedWithdrawalBRL.push(0);
+                        history.fxRate.push(currentFX);
+                        history.bondAllocation.push(0);
+                        history.rulesApplied.push(null);
+                        history.minimumEnforced.push(false);
+                        history.yearlyStressData.push({ minimumEnforced: false, extraWithdrawn: 0, percentExtra: 0 });
+                        history.withdrawalSource.push('none');
+                        continue;
+                    }
+                    
+                    // Generate equity return with appropriate distribution (Normal or Student's T)
+                    let equityReturnYear = this.generateReturn(equityReturn / 100, equityVolatility / 100);
+                    
+                    // Apply constraint on consecutive negative returns
+                    if (equityReturnYear < 0) {
+                        consecutiveNegativeYears++;
+                        // If we've hit the max negative sequence, force a positive/neutral return
+                        if (consecutiveNegativeYears >= this.params.maxNegativeSequence) {
+                            // Generate a modest positive return (0% to +10%)
+                            equityReturnYear = Math.random() * 0.10;
+                            consecutiveNegativeYears = 0; // Reset counter
+                        }
+                    } else {
+                        consecutiveNegativeYears = 0; // Reset counter on positive year
+                    }
+                    
+                    // Generate IPCA for the year (correlated with equity if using IPCA model)
+                    const ipcaYear = this.generateIPCA(equityReturnYear);
+                    
+                    // Generate bond return (IPCA + Real Spread if using IPCA model)
+                    const bondReturnYear = this.generateBondReturn(ipcaYear);
+                    
+                    // Apply returns to BRL portfolio (Brazilian fixed income, no FX exposure)
+                    portfolioBRLFixed *= (1 + bondReturnYear);
+                    
+                    // Update FX with dynamic correlation (only affects USD portfolio)
+                    currentFX = this.simulateCurrency(equityReturnYear, currentFX);
+                    
+                    // Calculate gain ratio for tax purposes (estimate based on years invested)
+                    const gainRatio = Math.min(0.6, year * 0.06);
+                    
+                    // Calculate minimum withdrawal in USD for this year
+                    const minimumWithdrawalUSD = useMinimumWithdrawal && minimumWithdrawalBRL > 0 
+                        ? minimumWithdrawalBRL / currentFX 
+                        : 0;
+                    
+                    // Bucket Strategy: In bucket years, withdrawals come from bonds only
+                    let withdrawalSource = 'mixed';
+                    let recommendedWithdrawalUSD = currentWithdrawalUSD;
+                    let actualWithdrawalUSD = currentWithdrawalUSD;
+                    let gkRuleApplied = null;
+                    let taxPaid = 0;
+                    
+                    if (useBucketStrategy && year <= bucketYears) {
+                        // Apply returns to each portion separately
+                        equityPortionUSD *= (1 + equityReturnYear);
+                        bondPortionUSD *= (1 + bondReturnYear);
+                        
+                        withdrawalSource = 'bonds';
+                        
+                        // Apply Guyton-Klinger rules to get recommended withdrawal
+                        const totalPortfolioUSD = equityPortionUSD + bondPortionUSD;
+                        const gkResult = this.applyGuytonKlinger(
+                            currentWithdrawalUSD,
+                            totalPortfolioUSD,
+                            initialWithdrawalRate,
+                            previousReturn,
+                            inflation / 100
+                        );
+                        recommendedWithdrawalUSD = gkResult.withdrawal;
+                        gkRuleApplied = gkResult.ruleApplied;
+                        
+                        // ENFORCE MINIMUM: actual withdrawal is MAX of recommended and minimum
+                        actualWithdrawalUSD = useMinimumWithdrawal 
+                            ? Math.max(recommendedWithdrawalUSD, minimumWithdrawalUSD)
+                            : recommendedWithdrawalUSD;
+                        
+                        // Calculate tax on withdrawal
+                        taxPaid = this.calculateTax(actualWithdrawalUSD, gainRatio, bondAllocation);
+                        
+                        // Total withdrawal including tax
+                        const totalWithdrawalUSD = actualWithdrawalUSD + taxPaid;
+                        
+                        // Withdraw from bonds (including tax)
+                        bondPortionUSD -= totalWithdrawalUSD;
+                        
+                        // If bonds depleted, take from equity
+                        if (bondPortionUSD < 0) {
+                            equityPortionUSD += bondPortionUSD;
+                            bondPortionUSD = 0;
+                            withdrawalSource = 'equity_forced';
+                        }
+                        
+                        portfolioUSD = equityPortionUSD + bondPortionUSD;
+                        
+                        // Recalculate allocation
+                        bondAllocation = portfolioUSD > 0 ? bondPortionUSD / portfolioUSD : 0;
+                        equityAllocation = 1 - bondAllocation;
+                        
+                        // Update current withdrawal for next iteration (use recommended, not forced)
+                        currentWithdrawalUSD = recommendedWithdrawalUSD;
+                        
+                    } else {
+                        // Standard strategy: Tent/Glidepath with mixed withdrawals
+                        
+                        // Tent strategy: adjust allocation
+                        if (year <= tentDuration) {
+                            bondAllocation = tentInitialBondPercent / 100;
+                        } else {
+                            const transitionYears = 3;
+                            const transitionProgress = Math.min(1, (year - tentDuration) / transitionYears);
+                            bondAllocation = tentInitialBondPercent / 100 - 
+                                (tentInitialBondPercent / 100 - targetBondPercent / 100) * transitionProgress;
+                        }
+                        equityAllocation = 1 - bondAllocation;
+                        
+                        // Calculate portfolio return
+                        const portfolioReturn = equityAllocation * equityReturnYear + bondAllocation * bondReturnYear;
+                        
+                        // Apply return to portfolio (before withdrawal)
+                        portfolioUSD *= (1 + portfolioReturn);
+                        
+                        // Update portions for tracking
+                        bondPortionUSD = portfolioUSD * bondAllocation;
+                        equityPortionUSD = portfolioUSD * equityAllocation;
+                        
+                        // REBALANCING LOGIC: If equity performed very well, withdraw from equity to rebalance
+                        // This helps maintain target allocation and avoids depleting fixed income unnecessarily
+                        const currentEquityPercent = equityPortionUSD / portfolioUSD;
+                        const targetEquityPercent = equityAllocation;
+                        const rebalanceThreshold = 0.10; // 10% above target triggers equity withdrawal
+                        
+                        let preferEquityWithdrawal = false;
+                        if (equityReturnYear > 0.15 && currentEquityPercent > targetEquityPercent + rebalanceThreshold) {
+                            // Equity had a great year (>15%) and is significantly above target allocation
+                            preferEquityWithdrawal = true;
+                            withdrawalSource = 'equity_rebalance';
+                        }
+                        
+                        // Apply Guyton-Klinger rules to get recommended withdrawal
+                        const gkResult = this.applyGuytonKlinger(
+                            currentWithdrawalUSD,
+                            portfolioUSD,
+                            initialWithdrawalRate,
+                            previousReturn,
+                            inflation / 100
+                        );
+                        recommendedWithdrawalUSD = gkResult.withdrawal;
+                        gkRuleApplied = gkResult.ruleApplied;
+                        
+                        // ENFORCE MINIMUM: actual withdrawal is MAX of recommended and minimum
+                        actualWithdrawalUSD = useMinimumWithdrawal 
+                            ? Math.max(recommendedWithdrawalUSD, minimumWithdrawalUSD)
+                            : recommendedWithdrawalUSD;
+                        
+                        // Calculate tax on withdrawal
+                        taxPaid = this.calculateTax(actualWithdrawalUSD, gainRatio, bondAllocation);
+                        
+                        // Total withdrawal including tax
+                        const totalWithdrawalUSD = actualWithdrawalUSD + taxPaid;
+                        
+                        // Make withdrawal - prioritize equity if rebalancing
+                        if (preferEquityWithdrawal) {
+                            // Withdraw from equity first to rebalance
+                            const maxEquityWithdrawal = Math.max(0, equityPortionUSD - portfolioUSD * targetEquityPercent);
+                            const equityWithdrawal = Math.min(totalWithdrawalUSD, maxEquityWithdrawal);
+                            const bondWithdrawal = totalWithdrawalUSD - equityWithdrawal;
+                            
+                            equityPortionUSD -= equityWithdrawal;
+                            bondPortionUSD -= bondWithdrawal;
+                            portfolioUSD = equityPortionUSD + bondPortionUSD;
+                        } else {
+                            // Standard proportional withdrawal
+                            portfolioUSD -= totalWithdrawalUSD;
+                        }
+                        
+                        // Update current withdrawal for next iteration (use recommended, not forced)
+                        currentWithdrawalUSD = recommendedWithdrawalUSD;
+                        
+                        previousReturn = portfolioReturn;
+                    }
+                    
+                    // Calculate values in BRL
+                    const actualWithdrawalBRL = actualWithdrawalUSD * currentFX;
+                    const recommendedWithdrawalBRL = recommendedWithdrawalUSD * currentFX;
+                    
+                    // Check if minimum was enforced (stress condition)
+                    const minimumWasEnforced = useMinimumWithdrawal && 
+                                               minimumWithdrawalBRL > 0 && 
+                                               actualWithdrawalUSD > recommendedWithdrawalUSD * 1.001; // Small tolerance for float comparison
+                    
+                    const extraWithdrawnBRL = minimumWasEnforced 
+                        ? actualWithdrawalBRL - recommendedWithdrawalBRL 
+                        : 0;
+                    const percentExtra = minimumWasEnforced && recommendedWithdrawalBRL > 0
+                        ? (extraWithdrawnBRL / recommendedWithdrawalBRL) * 100 
+                        : 0;
+                    
+                    history.yearlyStressData.push({ 
+                        minimumEnforced: minimumWasEnforced, 
+                        extraWithdrawn: extraWithdrawnBRL, 
+                        percentExtra 
+                    });
+                    
+                    // Track stress periods (when minimum withdrawal was enforced)
+                    if (minimumWasEnforced && !inStressPeriod) {
+                        // Starting a new stress period
+                        inStressPeriod = true;
+                        currentStressStart = year;
+                        currentStressExtraWithdrawn = extraWithdrawnBRL;
+                    } else if (minimumWasEnforced && inStressPeriod) {
+                        // Continuing stress period
+                        currentStressExtraWithdrawn += extraWithdrawnBRL;
+                    } else if (!minimumWasEnforced && inStressPeriod) {
+                        // Ending stress period - market recovered
+                        history.stressPeriods.push({
+                            startYear: currentStressStart,
+                            endYear: year - 1,
+                            duration: year - currentStressStart,
+                            totalExtraWithdrawn: currentStressExtraWithdrawn,
+                            recovered: true,
+                            recoveryYear: year
+                        });
+                        inStressPeriod = false;
+                        currentStressStart = null;
+                        currentStressExtraWithdrawn = 0;
+                    }
+                    
+                    // Check for failure (portfolio depleted)
+                    if (portfolioUSD <= 0) {
+                        // Close any open stress period
+                        if (inStressPeriod) {
+                            history.stressPeriods.push({
+                                startYear: currentStressStart,
+                                endYear: year,
+                                duration: year - currentStressStart + 1,
+                                totalExtraWithdrawn: currentStressExtraWithdrawn + extraWithdrawnBRL,
+                                recovered: false,
+                                recoveryYear: null
+                            });
+                            inStressPeriod = false;
+                        }
+                        
+                        history.failed = true;
+                        history.failureYear = year;
+                        history.failureType = 'depletion';
+                        history.failureCause = this.analyzeFailure(
+                            previousReturn,
+                            equityReturnYear,
+                            currentFX,
+                            bondAllocation,
+                            minimumWasEnforced
+                        );
+                        portfolioUSD = 0;
+                    }
+                    
+                    // Update BRL values (USD portfolio converted + BRL fixed income)
+                    portfolioBRL = portfolioUSD * currentFX + portfolioBRLFixed;
+                    
+                    // Store history
+                    history.portfolioUSD.push(portfolioUSD);
+                    history.portfolioBRL.push(portfolioBRL);
+                    history.withdrawalBRL.push(actualWithdrawalBRL);
+                    history.withdrawalUSD.push(actualWithdrawalUSD);
+                    history.recommendedWithdrawalBRL.push(recommendedWithdrawalBRL);
+                    history.fxRate.push(currentFX);
+                    history.bondAllocation.push(bondAllocation * 100);
+                    history.rulesApplied.push(gkRuleApplied);
+                    history.minimumEnforced.push(minimumWasEnforced);
+                    history.withdrawalSource.push(withdrawalSource);
+                }
+                
+                // Close any open stress period at end of simulation
+                if (inStressPeriod && !history.failed) {
+                    history.stressPeriods.push({
+                        startYear: currentStressStart,
+                        endYear: years,
+                        duration: years - currentStressStart + 1,
+                        totalExtraWithdrawn: currentStressExtraWithdrawn,
+                        recovered: false,
+                        recoveryYear: null
+                    });
+                }
+                
+                return history;
+            }
+
+            analyzeFailure(prevReturn, currentReturn, fx, bondAlloc, minimumEnforced) {
+                const causes = [];
+                if (minimumEnforced) causes.push('Saque mínimo forçado acelerou depleção');
+                if (prevReturn < -0.15) causes.push('Queda severa no ano anterior');
+                if (currentReturn < -0.20) causes.push('Crash de mercado');
+                if (fx > this.params.initialFX * 1.3) causes.push('Desvalorização cambial extrema');
+                if (bondAlloc < 0.15) causes.push('Baixa proteção em renda fixa');
+                return causes.length > 0 ? causes : ['Sequência prolongada de retornos negativos'];
+            }
+
+            // Run full Monte Carlo simulation
+            runMonteCarlo(iterations) {
+                const results = [];
+                
+                for (let i = 0; i < iterations; i++) {
+                    results.push(this.runSimulation());
+                }
+                
+                return this.analyzeResults(results);
+            }
+
+            analyzeResults(simulations) {
+                const years = this.params.years;
+                const numSims = simulations.length;
+                const { minimumWithdrawalBRL, useMinimumWithdrawal } = this.params;
+                
+                // Calculate percentiles for each year
+                const percentiles = {
+                    p10: [],
+                    p25: [],
+                    p50: [],
+                    p75: [],
+                    p90: []
+                };
+                
+                const withdrawalPercentiles = {
+                    p10: [],
+                    p25: [],
+                    p50: [],
+                    p75: [],
+                    p90: []
+                };
+                
+                // Track mean withdrawals per year
+                const withdrawalMeans = [];
+                const withdrawalMedians = [];
+                
+                // Track recommended vs actual withdrawal
+                const recommendedWithdrawalMeans = [];
+                
+                // Stress chart data (% extra withdrawn above recommended by year)
+                const stressChartData = {
+                    p10: [],
+                    p25: [],
+                    p50: [],
+                    p75: [],
+                    p90: [],
+                    mean: [],
+                    percentMinimumEnforced: [] // % of simulations where minimum was enforced each year
+                };
+
+                for (let year = 0; year <= years; year++) {
+                    const portfolioValues = simulations
+                        .map(s => s.portfolioBRL[year] || 0)
+                        .sort((a, b) => a - b);
+                    
+                    const withdrawalValues = simulations
+                        .map(s => s.withdrawalBRL[year] || 0)
+                        .sort((a, b) => a - b);
+                    
+                    // Filter out zero withdrawals for mean calculation (failed scenarios)
+                    const nonZeroWithdrawals = withdrawalValues.filter(w => w > 0);
+                    
+                    // Recommended withdrawals (what G-K would have suggested)
+                    const recommendedValues = simulations
+                        .map(s => s.recommendedWithdrawalBRL ? s.recommendedWithdrawalBRL[year] || 0 : 0)
+                        .filter(w => w > 0);
+                    
+                    percentiles.p10.push(portfolioValues[Math.floor(numSims * 0.10)]);
+                    percentiles.p25.push(portfolioValues[Math.floor(numSims * 0.25)]);
+                    percentiles.p50.push(portfolioValues[Math.floor(numSims * 0.50)]);
+                    percentiles.p75.push(portfolioValues[Math.floor(numSims * 0.75)]);
+                    percentiles.p90.push(portfolioValues[Math.floor(numSims * 0.90)]);
+                    
+                    withdrawalPercentiles.p10.push(withdrawalValues[Math.floor(numSims * 0.10)]);
+                    withdrawalPercentiles.p25.push(withdrawalValues[Math.floor(numSims * 0.25)]);
+                    withdrawalPercentiles.p50.push(withdrawalValues[Math.floor(numSims * 0.50)]);
+                    withdrawalPercentiles.p75.push(withdrawalValues[Math.floor(numSims * 0.75)]);
+                    withdrawalPercentiles.p90.push(withdrawalValues[Math.floor(numSims * 0.90)]);
+                    
+                    // Calculate mean and median
+                    const mean = nonZeroWithdrawals.length > 0 
+                        ? nonZeroWithdrawals.reduce((a, b) => a + b, 0) / nonZeroWithdrawals.length 
+                        : 0;
+                    const median = nonZeroWithdrawals.length > 0 
+                        ? nonZeroWithdrawals[Math.floor(nonZeroWithdrawals.length / 2)] 
+                        : 0;
+                    
+                    withdrawalMeans.push(mean);
+                    withdrawalMedians.push(median);
+                    
+                    // Recommended withdrawal mean
+                    const recommendedMean = recommendedValues.length > 0
+                        ? recommendedValues.reduce((a, b) => a + b, 0) / recommendedValues.length
+                        : 0;
+                    recommendedWithdrawalMeans.push(recommendedMean);
+                    
+                    // Stress data (% extra withdrawn)
+                    if (useMinimumWithdrawal && minimumWithdrawalBRL > 0) {
+                        const percentExtraValues = simulations
+                            .map(s => s.yearlyStressData[year]?.percentExtra || 0)
+                            .sort((a, b) => a - b);
+                        
+                        const minimumEnforcedCount = simulations
+                            .filter(s => s.yearlyStressData[year]?.minimumEnforced)
+                            .length;
+                        
+                        stressChartData.p10.push(percentExtraValues[Math.floor(numSims * 0.10)]);
+                        stressChartData.p25.push(percentExtraValues[Math.floor(numSims * 0.25)]);
+                        stressChartData.p50.push(percentExtraValues[Math.floor(numSims * 0.50)]);
+                        stressChartData.p75.push(percentExtraValues[Math.floor(numSims * 0.75)]);
+                        stressChartData.p90.push(percentExtraValues[Math.floor(numSims * 0.90)]);
+                        stressChartData.mean.push(
+                            percentExtraValues.reduce((a, b) => a + b, 0) / numSims
+                        );
+                        stressChartData.percentMinimumEnforced.push(
+                            (minimumEnforcedCount / numSims) * 100
+                        );
+                    }
+                }
+                
+                // ==========================================
+                // STRESS ANALYSIS (Options A, B, C, D, E)
+                // ==========================================
+                
+                // Collect all stress periods from all simulations
+                const allStressPeriods = simulations.flatMap(s => s.stressPeriods);
+                
+                // Option A: Duration analysis
+                const stressDurations = allStressPeriods.map(sp => sp.duration);
+                stressDurations.sort((a, b) => a - b);
+                
+                const durationAnalysis = {
+                    count: allStressPeriods.length,
+                    simsWithStress: simulations.filter(s => s.stressPeriods.length > 0).length,
+                    avgDuration: stressDurations.length > 0 
+                        ? stressDurations.reduce((a, b) => a + b, 0) / stressDurations.length 
+                        : 0,
+                    medianDuration: stressDurations.length > 0 
+                        ? stressDurations[Math.floor(stressDurations.length / 2)] 
+                        : 0,
+                    maxDuration: stressDurations.length > 0 ? Math.max(...stressDurations) : 0,
+                    minDuration: stressDurations.length > 0 ? Math.min(...stressDurations) : 0,
+                    // Distribution: count of periods by duration
+                    distribution: {}
+                };
+                
+                // Build duration distribution
+                stressDurations.forEach(d => {
+                    durationAnalysis.distribution[d] = (durationAnalysis.distribution[d] || 0) + 1;
+                });
+                
+                // Option B: Tolerance-based success rates
+                // Now tolerance means: "I can tolerate having to withdraw the minimum for X years"
+                const toleranceSuccessRates = [];
+                for (let tolerance = 0; tolerance <= 10; tolerance++) {
+                    // A simulation "succeeds" with this tolerance if:
+                    // - It didn't fail by depletion, AND
+                    // - Total years where minimum was enforced <= tolerance
+                    const successCount = simulations.filter(s => {
+                        if (s.failed && s.failureType === 'depletion') return false;
+                        const totalStressYears = s.stressPeriods.reduce((sum, sp) => sum + sp.duration, 0);
+                        return totalStressYears <= tolerance;
+                    }).length;
+                    
+                    toleranceSuccessRates.push({
+                        tolerance,
+                        successRate: (successCount / numSims) * 100,
+                        successCount
+                    });
+                }
+                
+                // Option C: Extra withdrawal analysis (how much more was withdrawn than recommended)
+                const allExtraWithdrawn = allStressPeriods.map(sp => sp.totalExtraWithdrawn);
+                allExtraWithdrawn.sort((a, b) => a - b);
+                
+                // This represents the "cost" of maintaining minimum lifestyle during stress
+                const extraWithdrawalAnalysis = {
+                    avgExtra: allExtraWithdrawn.length > 0 
+                        ? allExtraWithdrawn.reduce((a, b) => a + b, 0) / allExtraWithdrawn.length 
+                        : 0,
+                    medianExtra: allExtraWithdrawn.length > 0 
+                        ? allExtraWithdrawn[Math.floor(allExtraWithdrawn.length / 2)] 
+                        : 0,
+                    maxExtra: allExtraWithdrawn.length > 0 ? Math.max(...allExtraWithdrawn) : 0,
+                    // Impact on portfolio by percentile
+                    impactTable: []
+                };
+                
+                // Calculate total extra withdrawn per simulation (total portfolio impact)
+                const simTotalExtra = simulations.map(s => 
+                    s.stressPeriods.reduce((sum, sp) => sum + sp.totalExtraWithdrawn, 0)
+                ).sort((a, b) => a - b);
+                
+                [50, 60, 70, 80, 90, 95, 99].forEach(percentile => {
+                    const idx = Math.floor(numSims * percentile / 100);
+                    extraWithdrawalAnalysis.impactTable.push({
+                        percentile,
+                        extraWithdrawn: simTotalExtra[idx] || 0
+                    });
+                });
+                
+                // Option E: Recovery analysis
+                const recoveredPeriods = allStressPeriods.filter(sp => sp.recovered);
+                const unrecoveredPeriods = allStressPeriods.filter(sp => !sp.recovered);
+                
+                const recoveryAnalysis = {
+                    totalPeriods: allStressPeriods.length,
+                    recoveredCount: recoveredPeriods.length,
+                    unrecoveredCount: unrecoveredPeriods.length,
+                    recoveryRate: allStressPeriods.length > 0 
+                        ? (recoveredPeriods.length / allStressPeriods.length) * 100 
+                        : 100,
+                    avgRecoveryTime: recoveredPeriods.length > 0
+                        ? recoveredPeriods.reduce((sum, sp) => sum + sp.duration, 0) / recoveredPeriods.length
+                        : 0,
+                    // Distribution of recovery times
+                    recoveryTimeDistribution: {}
+                };
+                
+                recoveredPeriods.forEach(sp => {
+                    const time = sp.duration;
+                    recoveryAnalysis.recoveryTimeDistribution[time] = 
+                        (recoveryAnalysis.recoveryTimeDistribution[time] || 0) + 1;
+                });
+                
+                // Stress periods by starting year (to see when stress typically occurs)
+                const stressByStartYear = {};
+                allStressPeriods.forEach(sp => {
+                    stressByStartYear[sp.startYear] = (stressByStartYear[sp.startYear] || 0) + 1;
+                });
+                
+                // Total years of stress across all simulations
+                const totalStressYearsPerSim = simulations.map(s => 
+                    s.yearlyStressData.filter(y => y.minimumEnforced).length
+                );
+                const avgStressYearsPerSim = totalStressYearsPerSim.reduce((a, b) => a + b, 0) / numSims;
+                
+                // ==========================================
+                // ORIGINAL METRICS
+                // ==========================================
+                
+                // Survival rate (portfolio depletion)
+                const survived = simulations.filter(s => !s.failed).length;
+                const survivalRate = (survived / numSims) * 100;
+                
+                // Failure count
+                const failedByDepletion = simulations.filter(s => s.failed && s.failureType === 'depletion').length;
+                
+                // Worst case withdrawal (excluding zeros from failed scenarios)
+                const allMinWithdrawals = simulations
+                    .map(s => Math.min(...s.withdrawalBRL.filter(w => w > 0)))
+                    .filter(w => w > 0 && isFinite(w));
+                const worstWithdrawal = allMinWithdrawals.length > 0 ? Math.min(...allMinWithdrawals) : 0;
+                
+                // Best and median final portfolio
+                const finalPortfolios = simulations.map(s => s.portfolioBRL[s.portfolioBRL.length - 1]);
+                finalPortfolios.sort((a, b) => a - b);
+                const medianFinal = finalPortfolios[Math.floor(numSims * 0.5)];
+                const bestFinal = finalPortfolios[numSims - 1];
+                
+                // Average withdrawal across all years and simulations (excluding zeros)
+                const allWithdrawals = simulations.flatMap(s => s.withdrawalBRL.filter(w => w > 0));
+                allWithdrawals.sort((a, b) => a - b);
+                const overallMeanWithdrawal = allWithdrawals.length > 0 
+                    ? allWithdrawals.reduce((a, b) => a + b, 0) / allWithdrawals.length 
+                    : 0;
+                const overallMedianWithdrawal = allWithdrawals.length > 0 
+                    ? allWithdrawals[Math.floor(allWithdrawals.length / 2)] 
+                    : 0;
+                
+                // Withdrawal stats by period (early, mid, late)
+                const earlyYears = Math.floor(years / 3);
+                const midYears = Math.floor(2 * years / 3);
+                
+                const earlyWithdrawals = simulations.flatMap(s => 
+                    s.withdrawalBRL.slice(0, earlyYears).filter(w => w > 0)
+                );
+                const midWithdrawals = simulations.flatMap(s => 
+                    s.withdrawalBRL.slice(earlyYears, midYears).filter(w => w > 0)
+                );
+                const lateWithdrawals = simulations.flatMap(s => 
+                    s.withdrawalBRL.slice(midYears).filter(w => w > 0)
+                );
+                
+                const periodStats = {
+                    early: {
+                        mean: earlyWithdrawals.length > 0 ? earlyWithdrawals.reduce((a, b) => a + b, 0) / earlyWithdrawals.length : 0,
+                        median: earlyWithdrawals.length > 0 ? earlyWithdrawals.sort((a, b) => a - b)[Math.floor(earlyWithdrawals.length / 2)] : 0
+                    },
+                    mid: {
+                        mean: midWithdrawals.length > 0 ? midWithdrawals.reduce((a, b) => a + b, 0) / midWithdrawals.length : 0,
+                        median: midWithdrawals.length > 0 ? midWithdrawals.sort((a, b) => a - b)[Math.floor(midWithdrawals.length / 2)] : 0
+                    },
+                    late: {
+                        mean: lateWithdrawals.length > 0 ? lateWithdrawals.reduce((a, b) => a + b, 0) / lateWithdrawals.length : 0,
+                        median: lateWithdrawals.length > 0 ? lateWithdrawals.sort((a, b) => a - b)[Math.floor(lateWithdrawals.length / 2)] : 0
+                    }
+                };
+                
+                // Failure analysis
+                const failures = simulations.filter(s => s.failed);
+                const failureCauses = {};
+                failures.forEach(f => {
+                    if (f.failureCause) {
+                        f.failureCause.forEach(cause => {
+                            failureCauses[cause] = (failureCauses[cause] || 0) + 1;
+                        });
+                    }
+                });
+                
+                // Average failure year
+                const avgFailureYear = failures.length > 0 
+                    ? failures.reduce((sum, f) => sum + f.failureYear, 0) / failures.length 
+                    : null;
+                
+                // Rule application stats
+                const ruleStats = {
+                    preservation: 0,
+                    prosperity: 0,
+                    inflationSkip: 0
+                };
+                simulations.forEach(s => {
+                    s.rulesApplied.forEach(rule => {
+                        if (rule === 'preservation') ruleStats.preservation++;
+                        if (rule === 'prosperity') ruleStats.prosperity++;
+                        if (rule === 'inflation_skip') ruleStats.inflationSkip++;
+                    });
+                });
+                
+                return {
+                    portfolioPercentiles: percentiles,
+                    withdrawalPercentiles,
+                    withdrawalMeans,
+                    withdrawalMedians,
+                    recommendedWithdrawalMeans,
+                    stressChartData,
+                    survivalRate,
+                    failedByDepletion,
+                    worstWithdrawal,
+                    overallMeanWithdrawal,
+                    overallMedianWithdrawal,
+                    periodStats,
+                    medianFinalPortfolio: medianFinal,
+                    bestFinalPortfolio: bestFinal,
+                    failureCauses,
+                    avgFailureYear,
+                    ruleStats,
+                    totalSimulations: numSims,
+                    failedSimulations: failures.length,
+                    // New stress analysis
+                    stressAnalysis: {
+                        duration: durationAnalysis,
+                        tolerance: toleranceSuccessRates,
+                        extraWithdrawal: extraWithdrawalAnalysis,
+                        recovery: recoveryAnalysis,
+                        stressByStartYear,
+                        avgStressYearsPerSim
+                    }
+                };
+            }
+        }
+
+        // ============================================
+        // REACT COMPONENTS
+        // ============================================
+
+        // Icon component using Lucide
+        const Icon = ({ name, size = 20, className = "" }) => {
+            const ref = useRef(null);
+            useEffect(() => {
+                if (ref.current) {
+                    ref.current.innerHTML = '';
+                    const icon = lucide.createElement(lucide.icons[name]);
+                    icon.setAttribute('width', size);
+                    icon.setAttribute('height', size);
+                    if (className) icon.setAttribute('class', className);
+                    ref.current.appendChild(icon);
+                }
+            }, [name, size, className]);
+            return <span ref={ref} className="inline-flex items-center justify-center" />;
+        };
+
+        // Input component
+        const Input = ({ label, value, onChange, unit, min, max, step = 1, tooltip }) => (
+            <div className="mb-3">
+                <label className="flex items-center text-xs text-gray-400 mb-1 font-medium uppercase tracking-wide">
+                    {label}
+                    {tooltip && (
+                        <span className="ml-1 cursor-help text-gray-500" title={tooltip}>
+                            <Icon name="HelpCircle" size={12} />
+                        </span>
+                    )}
+                </label>
+                <div className="relative">
+                    <input
+                        type="number"
+                        value={value}
+                        onChange={(e) => onChange(parseFloat(e.target.value) || 0)}
+                        min={min}
+                        max={max}
+                        step={step}
+                        className="w-full bg-deep border border-gray-700 rounded-lg px-3 py-2 text-sm font-mono 
+                                   text-white focus:outline-none focus:border-accent input-focus transition-all"
+                    />
+                    {unit && (
+                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-500">
+                            {unit}
+                        </span>
+                    )}
+                </div>
+            </div>
+        );
+
+        // Toggle component
+        const Toggle = ({ label, checked, onChange }) => (
+            <div className="flex items-center justify-between mb-3">
+                <span className="text-xs text-gray-400 font-medium uppercase tracking-wide">{label}</span>
+                <button
+                    onClick={() => onChange(!checked)}
+                    className={`w-11 h-6 rounded-full transition-colors relative ${
+                        checked ? 'bg-accent' : 'bg-gray-700'
+                    }`}
+                >
+                    <span className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-transform ${
+                        checked ? 'left-6' : 'left-1'
+                    }`} />
+                </button>
+            </div>
+        );
+
+        // Stat card component
+        const StatCard = ({ title, value, unit, icon, color = "accent", subtitle }) => {
+            const colorClasses = {
+                accent: "text-accent border-accent/30",
+                danger: "text-danger border-danger/30",
+                warning: "text-warning border-warning/30",
+                info: "text-info border-info/30"
+            };
+            
+            return (
+                <div className={`bg-surface rounded-xl p-4 border ${colorClasses[color]} stat-glow`}>
+                    <div className="flex items-start justify-between mb-2">
+                        <span className="text-xs text-gray-400 uppercase tracking-wide font-medium">{title}</span>
+                        <Icon name={icon} size={18} className={colorClasses[color].split(' ')[0]} />
+                    </div>
+                    <div className="flex items-baseline gap-1">
+                        <span className={`text-2xl font-bold font-mono ${colorClasses[color].split(' ')[0]}`}>
+                            {value}
+                        </span>
+                        {unit && <span className="text-sm text-gray-500">{unit}</span>}
+                    </div>
+                    {subtitle && <p className="text-xs text-gray-500 mt-1">{subtitle}</p>}
+                </div>
+            );
+        };
+
+        // Chart component for portfolio evolution
+        const PortfolioChart = ({ data, years }) => {
+            const chartRef = useRef(null);
+            const canvasRef = useRef(null);
+
+            useEffect(() => {
+                if (!data || !canvasRef.current) return;
+
+                if (chartRef.current) {
+                    chartRef.current.destroy();
+                }
+
+                const ctx = canvasRef.current.getContext('2d');
+                const labels = Array.from({ length: years + 1 }, (_, i) => `Ano ${i}`);
+
+                chartRef.current = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels,
+                        datasets: [
+                            {
+                                label: 'Percentil 90',
+                                data: data.p90,
+                                borderColor: 'rgba(16, 185, 129, 0.8)',
+                                backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                                fill: '+1',
+                                tension: 0.3,
+                                borderWidth: 1,
+                                pointRadius: 0
+                            },
+                            {
+                                label: 'Percentil 75',
+                                data: data.p75,
+                                borderColor: 'rgba(16, 185, 129, 0.6)',
+                                backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                                fill: '+1',
+                                tension: 0.3,
+                                borderWidth: 1,
+                                pointRadius: 0
+                            },
+                            {
+                                label: 'Mediana (P50)',
+                                data: data.p50,
+                                borderColor: '#10b981',
+                                backgroundColor: 'rgba(16, 185, 129, 0.2)',
+                                fill: '+1',
+                                tension: 0.3,
+                                borderWidth: 2,
+                                pointRadius: 0
+                            },
+                            {
+                                label: 'Percentil 25',
+                                data: data.p25,
+                                borderColor: 'rgba(245, 158, 11, 0.6)',
+                                backgroundColor: 'rgba(245, 158, 11, 0.1)',
+                                fill: '+1',
+                                tension: 0.3,
+                                borderWidth: 1,
+                                pointRadius: 0
+                            },
+                            {
+                                label: 'Percentil 10',
+                                data: data.p10,
+                                borderColor: 'rgba(239, 68, 68, 0.8)',
+                                backgroundColor: 'transparent',
+                                fill: false,
+                                tension: 0.3,
+                                borderWidth: 2,
+                                borderDash: [5, 5],
+                                pointRadius: 0
+                            }
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        interaction: {
+                            intersect: false,
+                            mode: 'index'
+                        },
+                        plugins: {
+                            legend: {
+                                display: true,
+                                position: 'top',
+                                labels: {
+                                    color: '#9ca3af',
+                                    font: { family: 'Outfit', size: 11 },
+                                    usePointStyle: true,
+                                    padding: 15
+                                }
+                            },
+                            tooltip: {
+                                backgroundColor: '#1a2234',
+                                titleColor: '#fff',
+                                bodyColor: '#9ca3af',
+                                borderColor: '#374151',
+                                borderWidth: 1,
+                                padding: 12,
+                                callbacks: {
+                                    label: (ctx) => `${ctx.dataset.label}: R$ ${(ctx.raw / 1000000).toFixed(2)}M`
+                                }
+                            }
+                        },
+                        scales: {
+                            x: {
+                                grid: { color: 'rgba(55, 65, 81, 0.3)' },
+                                ticks: { color: '#6b7280', font: { family: 'JetBrains Mono', size: 10 } }
+                            },
+                            y: {
+                                grid: { color: 'rgba(55, 65, 81, 0.3)' },
+                                ticks: {
+                                    color: '#6b7280',
+                                    font: { family: 'JetBrains Mono', size: 10 },
+                                    callback: (value) => `R$ ${(value / 1000000).toFixed(1)}M`
+                                }
+                            }
+                        }
+                    }
+                });
+
+                return () => {
+                    if (chartRef.current) {
+                        chartRef.current.destroy();
+                    }
+                };
+            }, [data, years]);
+
+            return (
+                <div className="chart-container">
+                    <canvas ref={canvasRef} />
+                </div>
+            );
+        };
+
+        // Chart component for withdrawals
+        const WithdrawalChart = ({ data, years }) => {
+            const chartRef = useRef(null);
+            const canvasRef = useRef(null);
+
+            useEffect(() => {
+                if (!data || !canvasRef.current) return;
+
+                if (chartRef.current) {
+                    chartRef.current.destroy();
+                }
+
+                const ctx = canvasRef.current.getContext('2d');
+                const labels = Array.from({ length: years + 1 }, (_, i) => `Ano ${i}`);
+
+                chartRef.current = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels,
+                        datasets: [
+                            {
+                                label: 'Percentil 90',
+                                data: data.p90,
+                                borderColor: 'rgba(59, 130, 246, 0.6)',
+                                fill: false,
+                                tension: 0.3,
+                                borderWidth: 1,
+                                pointRadius: 0
+                            },
+                            {
+                                label: 'Mediana',
+                                data: data.p50,
+                                borderColor: '#3b82f6',
+                                backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                                fill: true,
+                                tension: 0.3,
+                                borderWidth: 2,
+                                pointRadius: 0
+                            },
+                            {
+                                label: 'Percentil 10',
+                                data: data.p10,
+                                borderColor: 'rgba(239, 68, 68, 0.8)',
+                                fill: false,
+                                tension: 0.3,
+                                borderWidth: 2,
+                                borderDash: [5, 5],
+                                pointRadius: 0
+                            }
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        interaction: {
+                            intersect: false,
+                            mode: 'index'
+                        },
+                        plugins: {
+                            legend: {
+                                display: true,
+                                position: 'top',
+                                labels: {
+                                    color: '#9ca3af',
+                                    font: { family: 'Outfit', size: 11 },
+                                    usePointStyle: true,
+                                    padding: 15
+                                }
+                            },
+                            tooltip: {
+                                backgroundColor: '#1a2234',
+                                titleColor: '#fff',
+                                bodyColor: '#9ca3af',
+                                borderColor: '#374151',
+                                borderWidth: 1,
+                                padding: 12,
+                                callbacks: {
+                                    label: (ctx) => `${ctx.dataset.label}: R$ ${ctx.raw.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}`
+                                }
+                            }
+                        },
+                        scales: {
+                            x: {
+                                grid: { color: 'rgba(55, 65, 81, 0.3)' },
+                                ticks: { color: '#6b7280', font: { family: 'JetBrains Mono', size: 10 } }
+                            },
+                            y: {
+                                grid: { color: 'rgba(55, 65, 81, 0.3)' },
+                                ticks: {
+                                    color: '#6b7280',
+                                    font: { family: 'JetBrains Mono', size: 10 },
+                                    callback: (value) => `R$ ${(value / 1000).toFixed(0)}k`
+                                }
+                            }
+                        }
+                    }
+                });
+
+                return () => {
+                    if (chartRef.current) {
+                        chartRef.current.destroy();
+                    }
+                };
+            }, [data, years]);
+
+            return (
+                <div className="chart-container">
+                    <canvas ref={canvasRef} />
+                </div>
+            );
+        };
+
+        // Chart component for mean/median withdrawal evolution
+        const WithdrawalEvolutionChart = ({ means, medians, years, minimumWithdrawal, useMinimum }) => {
+            const chartRef = useRef(null);
+            const canvasRef = useRef(null);
+
+            useEffect(() => {
+                if (!means || !medians || !canvasRef.current) return;
+
+                if (chartRef.current) {
+                    chartRef.current.destroy();
+                }
+
+                const ctx = canvasRef.current.getContext('2d');
+                const labels = Array.from({ length: years + 1 }, (_, i) => `Ano ${i}`);
+
+                const datasets = [
+                    {
+                        label: 'Média',
+                        data: means,
+                        borderColor: '#8b5cf6',
+                        backgroundColor: 'rgba(139, 92, 246, 0.1)',
+                        fill: false,
+                        tension: 0.3,
+                        borderWidth: 2,
+                        pointRadius: 0
+                    },
+                    {
+                        label: 'Mediana',
+                        data: medians,
+                        borderColor: '#10b981',
+                        backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                        fill: true,
+                        tension: 0.3,
+                        borderWidth: 2,
+                        pointRadius: 0
+                    }
+                ];
+
+                // Add minimum withdrawal line if enabled
+                if (useMinimum && minimumWithdrawal > 0) {
+                    datasets.push({
+                        label: 'Mínimo Aceitável',
+                        data: Array(years + 1).fill(minimumWithdrawal),
+                        borderColor: '#ef4444',
+                        borderWidth: 2,
+                        borderDash: [10, 5],
+                        pointRadius: 0,
+                        fill: false
+                    });
+                }
+
+                chartRef.current = new Chart(ctx, {
+                    type: 'line',
+                    data: { labels, datasets },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        interaction: {
+                            intersect: false,
+                            mode: 'index'
+                        },
+                        plugins: {
+                            legend: {
+                                display: true,
+                                position: 'top',
+                                labels: {
+                                    color: '#9ca3af',
+                                    font: { family: 'Outfit', size: 11 },
+                                    usePointStyle: true,
+                                    padding: 15
+                                }
+                            },
+                            tooltip: {
+                                backgroundColor: '#1a2234',
+                                titleColor: '#fff',
+                                bodyColor: '#9ca3af',
+                                borderColor: '#374151',
+                                borderWidth: 1,
+                                padding: 12,
+                                callbacks: {
+                                    label: (ctx) => `${ctx.dataset.label}: R$ ${ctx.raw.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}`
+                                }
+                            }
+                        },
+                        scales: {
+                            x: {
+                                grid: { color: 'rgba(55, 65, 81, 0.3)' },
+                                ticks: { color: '#6b7280', font: { family: 'JetBrains Mono', size: 10 } }
+                            },
+                            y: {
+                                grid: { color: 'rgba(55, 65, 81, 0.3)' },
+                                ticks: {
+                                    color: '#6b7280',
+                                    font: { family: 'JetBrains Mono', size: 10 },
+                                    callback: (value) => `R$ ${(value / 1000).toFixed(0)}k`
+                                }
+                            }
+                        }
+                    }
+                });
+
+                return () => {
+                    if (chartRef.current) {
+                        chartRef.current.destroy();
+                    }
+                };
+            }, [means, medians, years, minimumWithdrawal, useMinimum]);
+
+            return (
+                <div className="chart-container">
+                    <canvas ref={canvasRef} />
+                </div>
+            );
+        };
+
+        // Withdrawal statistics component
+        const WithdrawalStats = ({ results, formatCurrency, initialWithdrawalBRL }) => {
+            const { overallMeanWithdrawal, overallMedianWithdrawal, periodStats, worstWithdrawal } = results;
+            
+            const years = results.withdrawalMeans.length - 1;
+            const earlyYears = Math.floor(years / 3);
+            const midYears = Math.floor(2 * years / 3);
+            
+            return (
+                <div className="bg-surface rounded-xl p-4 border border-gray-800">
+                    <div className="flex items-center gap-2 mb-4">
+                        <Icon name="Calculator" size={20} className="text-purple-400" />
+                        <h3 className="font-semibold">Estatísticas de Saques (BRL/ano)</h3>
+                    </div>
+                    
+                    {/* Overall stats */}
+                    <div className="grid grid-cols-3 gap-3 mb-4">
+                        <div className="text-center p-3 bg-deep rounded-lg border border-purple-500/20">
+                            <div className="text-lg font-mono text-purple-400">
+                                {formatCurrency(overallMeanWithdrawal)}
+                            </div>
+                            <div className="text-xs text-gray-400">Média Geral</div>
+                        </div>
+                        <div className="text-center p-3 bg-deep rounded-lg border border-accent/20">
+                            <div className="text-lg font-mono text-accent">
+                                {formatCurrency(overallMedianWithdrawal)}
+                            </div>
+                            <div className="text-xs text-gray-400">Mediana Geral</div>
+                        </div>
+                        <div className="text-center p-3 bg-deep rounded-lg border border-danger/20">
+                            <div className="text-lg font-mono text-danger">
+                                {formatCurrency(worstWithdrawal)}
+                            </div>
+                            <div className="text-xs text-gray-400">Pior Caso</div>
+                        </div>
+                    </div>
+                    
+                    {/* Period breakdown */}
+                    <div className="text-xs text-gray-400 mb-2 font-medium">Evolução por Período</div>
+                    <div className="space-y-2">
+                        <div className="flex items-center justify-between p-2 bg-deep rounded-lg">
+                            <div className="flex items-center gap-2">
+                                <span className="w-2 h-2 rounded-full bg-blue-400"></span>
+                                <span className="text-gray-300">Anos 1-{earlyYears}</span>
+                            </div>
+                            <div className="text-right">
+                                <span className="text-xs text-gray-500 mr-2">Média:</span>
+                                <span className="font-mono text-blue-400">{formatCurrency(periodStats.early.mean)}</span>
+                            </div>
+                        </div>
+                        <div className="flex items-center justify-between p-2 bg-deep rounded-lg">
+                            <div className="flex items-center gap-2">
+                                <span className="w-2 h-2 rounded-full bg-yellow-400"></span>
+                                <span className="text-gray-300">Anos {earlyYears + 1}-{midYears}</span>
+                            </div>
+                            <div className="text-right">
+                                <span className="text-xs text-gray-500 mr-2">Média:</span>
+                                <span className="font-mono text-yellow-400">{formatCurrency(periodStats.mid.mean)}</span>
+                            </div>
+                        </div>
+                        <div className="flex items-center justify-between p-2 bg-deep rounded-lg">
+                            <div className="flex items-center gap-2">
+                                <span className="w-2 h-2 rounded-full bg-green-400"></span>
+                                <span className="text-gray-300">Anos {midYears + 1}-{years}</span>
+                            </div>
+                            <div className="text-right">
+                                <span className="text-xs text-gray-500 mr-2">Média:</span>
+                                <span className="font-mono text-green-400">{formatCurrency(periodStats.late.mean)}</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    {/* Comparison with initial */}
+                    <div className="mt-4 pt-3 border-t border-gray-700">
+                        <div className="flex justify-between items-center text-xs">
+                            <span className="text-gray-400">Saque Inicial:</span>
+                            <span className="font-mono text-white">{formatCurrency(initialWithdrawalBRL)}</span>
+                        </div>
+                        <div className="flex justify-between items-center text-xs mt-1">
+                            <span className="text-gray-400">Variação Média:</span>
+                            <span className={`font-mono ${overallMeanWithdrawal >= initialWithdrawalBRL ? 'text-accent' : 'text-warning'}`}>
+                                {((overallMeanWithdrawal / initialWithdrawalBRL - 1) * 100).toFixed(1)}%
+                            </span>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        // Failure analysis component
+        const FailureAnalysis = ({ failureCauses, avgFailureYear, failedCount, total, failedByDepletion }) => {
+            const sortedCauses = Object.entries(failureCauses)
+                .sort(([, a], [, b]) => b - a);
+            
+            if (sortedCauses.length === 0) {
+                return (
+                    <div className="bg-surface rounded-xl p-4 border border-accent/30">
+                        <div className="flex items-center gap-2 mb-3">
+                            <Icon name="ShieldCheck" size={20} className="text-accent" />
+                            <h3 className="font-semibold text-accent">Análise de Robustez</h3>
+                        </div>
+                        <p className="text-gray-400 text-sm">
+                            Excelente! Nenhum cenário de falha detectado nas simulações.
+                            Sua estratégia demonstra alta resiliência.
+                        </p>
+                    </div>
+                );
+            }
+
+            return (
+                <div className="bg-surface rounded-xl p-4 border border-danger/30">
+                    <div className="flex items-center gap-2 mb-3">
+                        <Icon name="AlertTriangle" size={20} className="text-danger" />
+                        <h3 className="font-semibold text-danger">Cenários de Falha (Depleção)</h3>
+                    </div>
+                    <div className="space-y-3">
+                        <div className="text-sm text-gray-400">
+                            <span className="text-white font-mono">{failedCount}</span> de {total} simulações 
+                            tiveram o portfólio zerado
+                            {avgFailureYear && (
+                                <span className="ml-2">
+                                    (média no ano <span className="text-warning font-mono">{avgFailureYear.toFixed(1)}</span>)
+                                </span>
+                            )}
+                        </div>
+                        
+                        <div className="space-y-2">
+                            {sortedCauses.map(([cause, count]) => (
+                                <div key={cause} className="flex items-center gap-2">
+                                    <div className="flex-1 bg-deep rounded-full h-2 overflow-hidden">
+                                        <div 
+                                            className="h-full bg-gradient-to-r from-danger to-warning"
+                                            style={{ width: `${(count / failedCount) * 100}%` }}
+                                        />
+                                    </div>
+                                    <span className="text-xs text-gray-400 w-48 truncate">{cause}</span>
+                                    <span className="text-xs font-mono text-gray-500">{count}</span>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        // Rules explanation component
+        const RulesExplanation = ({ ruleStats, survivalRate }) => {
+            return (
+                <div className="bg-surface rounded-xl p-4 border border-gray-700">
+                    <div className="flex items-center gap-2 mb-3">
+                        <Icon name="BookOpen" size={20} className="text-info" />
+                        <h3 className="font-semibold">Regras de Guyton-Klinger Aplicadas</h3>
+                    </div>
+                    <div className="grid grid-cols-3 gap-3 mb-4">
+                        <div className="text-center p-3 bg-deep rounded-lg">
+                            <div className="text-lg font-mono text-warning">{ruleStats.preservation}</div>
+                            <div className="text-xs text-gray-400">Preservação</div>
+                        </div>
+                        <div className="text-center p-3 bg-deep rounded-lg">
+                            <div className="text-lg font-mono text-accent">{ruleStats.prosperity}</div>
+                            <div className="text-xs text-gray-400">Prosperidade</div>
+                        </div>
+                        <div className="text-center p-3 bg-deep rounded-lg">
+                            <div className="text-lg font-mono text-info">{ruleStats.inflationSkip}</div>
+                            <div className="text-xs text-gray-400">Inflação Pulada</div>
+                        </div>
+                    </div>
+                    <p className="text-xs text-gray-500">
+                        {survivalRate >= 95 ? (
+                            "As regras de Guyton-Klinger contribuíram significativamente para a alta taxa de sobrevivência, ajustando os saques dinamicamente conforme o mercado."
+                        ) : survivalRate >= 80 ? (
+                            "Os gatilhos de preservação foram ativados frequentemente, protegendo o portfólio em cenários adversos. Considere uma taxa de retirada mais conservadora."
+                        ) : (
+                            "A alta frequência de ativação dos gatilhos indica que a estratégia está sob estresse. Recomenda-se revisar os parâmetros de retirada."
+                        )}
+                    </p>
+                </div>
+            );
+        };
+
+        // ============================================
+        // STRESS ANALYSIS COMPONENTS
+        // ============================================
+
+        // Option A: Duration Analysis Component
+        const StressDurationAnalysis = ({ durationAnalysis, formatCurrency }) => {
+            const chartRef = useRef(null);
+            const canvasRef = useRef(null);
+
+            useEffect(() => {
+                if (!durationAnalysis || !canvasRef.current || Object.keys(durationAnalysis.distribution).length === 0) return;
+
+                if (chartRef.current) {
+                    chartRef.current.destroy();
+                }
+
+                const ctx = canvasRef.current.getContext('2d');
+                const labels = Object.keys(durationAnalysis.distribution).map(d => `${d} ano${d > 1 ? 's' : ''}`);
+                const data = Object.values(durationAnalysis.distribution);
+
+                chartRef.current = new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                        labels,
+                        datasets: [{
+                            label: 'Períodos',
+                            data,
+                            backgroundColor: 'rgba(245, 158, 11, 0.7)',
+                            borderColor: '#f59e0b',
+                            borderWidth: 1,
+                            borderRadius: 4
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: { display: false },
+                            tooltip: {
+                                backgroundColor: '#1a2234',
+                                titleColor: '#fff',
+                                bodyColor: '#9ca3af',
+                                callbacks: {
+                                    label: (ctx) => `${ctx.raw} períodos`
+                                }
+                            }
+                        },
+                        scales: {
+                            x: {
+                                grid: { display: false },
+                                ticks: { color: '#6b7280', font: { family: 'JetBrains Mono', size: 10 } }
+                            },
+                            y: {
+                                grid: { color: 'rgba(55, 65, 81, 0.3)' },
+                                ticks: { color: '#6b7280', font: { family: 'JetBrains Mono', size: 10 } }
+                            }
+                        }
+                    }
+                });
+
+                return () => {
+                    if (chartRef.current) chartRef.current.destroy();
+                };
+            }, [durationAnalysis]);
+
+            if (!durationAnalysis || durationAnalysis.count === 0) {
+                return (
+                    <div className="bg-surface rounded-xl p-4 border border-accent/30">
+                        <div className="flex items-center gap-2 mb-3">
+                            <Icon name="Clock" size={20} className="text-accent" />
+                            <h3 className="font-semibold text-accent">Duração dos Períodos</h3>
+                        </div>
+                        <p className="text-gray-400 text-sm">
+                            Nenhum período onde o mínimo foi necessário! As regras de G-K sempre recomendaram valores acima do seu mínimo.
+                        </p>
+                    </div>
+                );
+            }
+
+            return (
+                <div className="bg-surface rounded-xl p-4 border border-warning/30">
+                    <div className="flex items-center gap-2 mb-3">
+                        <Icon name="Clock" size={20} className="text-warning" />
+                        <h3 className="font-semibold">Duração (Mínimo Forçado)</h3>
+                    </div>
+                    
+                    <div className="grid grid-cols-4 gap-2 mb-4">
+                        <div className="text-center p-2 bg-deep rounded-lg">
+                            <div className="text-lg font-mono text-warning">{durationAnalysis.count}</div>
+                            <div className="text-xs text-gray-500">Total</div>
+                        </div>
+                        <div className="text-center p-2 bg-deep rounded-lg">
+                            <div className="text-lg font-mono text-yellow-400">{durationAnalysis.avgDuration.toFixed(1)}</div>
+                            <div className="text-xs text-gray-500">Média</div>
+                        </div>
+                        <div className="text-center p-2 bg-deep rounded-lg">
+                            <div className="text-lg font-mono text-orange-400">{durationAnalysis.medianDuration}</div>
+                            <div className="text-xs text-gray-500">Mediana</div>
+                        </div>
+                        <div className="text-center p-2 bg-deep rounded-lg">
+                            <div className="text-lg font-mono text-red-400">{durationAnalysis.maxDuration}</div>
+                            <div className="text-xs text-gray-500">Máximo</div>
+                        </div>
+                    </div>
+                    
+                    <div className="h-40">
+                        <canvas ref={canvasRef} />
+                    </div>
+                    
+                    <p className="text-xs text-gray-500 mt-3">
+                        Distribuição de quanto tempo (anos consecutivos) o saque mínimo precisou ser forçado em cada período de stress.
+                    </p>
+                </div>
+            );
+        };
+
+        // Option B: Tolerance Success Rate Component
+        const ToleranceSuccessChart = ({ toleranceData, currentSurvivalRate }) => {
+            const chartRef = useRef(null);
+            const canvasRef = useRef(null);
+
+            useEffect(() => {
+                if (!toleranceData || !canvasRef.current) return;
+
+                if (chartRef.current) {
+                    chartRef.current.destroy();
+                }
+
+                const ctx = canvasRef.current.getContext('2d');
+
+                chartRef.current = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: toleranceData.map(d => `${d.tolerance} ano${d.tolerance !== 1 ? 's' : ''}`),
+                        datasets: [{
+                            label: 'Taxa de Sucesso',
+                            data: toleranceData.map(d => d.successRate),
+                            borderColor: '#10b981',
+                            backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                            fill: true,
+                            tension: 0.3,
+                            borderWidth: 2,
+                            pointRadius: 4,
+                            pointBackgroundColor: '#10b981'
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: { display: false },
+                            tooltip: {
+                                backgroundColor: '#1a2234',
+                                titleColor: '#fff',
+                                bodyColor: '#9ca3af',
+                                callbacks: {
+                                    label: (ctx) => `Taxa de sucesso: ${ctx.raw.toFixed(1)}%`
+                                }
+                            }
+                        },
+                        scales: {
+                            x: {
+                                grid: { display: false },
+                                ticks: { color: '#6b7280', font: { family: 'JetBrains Mono', size: 10 } },
+                                title: { display: true, text: 'Tolerância a Stress', color: '#9ca3af' }
+                            },
+                            y: {
+                                min: 0,
+                                max: 100,
+                                grid: { color: 'rgba(55, 65, 81, 0.3)' },
+                                ticks: { 
+                                    color: '#6b7280', 
+                                    font: { family: 'JetBrains Mono', size: 10 },
+                                    callback: (v) => `${v}%`
+                                }
+                            }
+                        }
+                    }
+                });
+
+                return () => {
+                    if (chartRef.current) chartRef.current.destroy();
+                };
+            }, [toleranceData]);
+
+            // Find the tolerance needed for 90% and 95% success
+            const find90 = toleranceData?.find(d => d.successRate >= 90);
+            const find95 = toleranceData?.find(d => d.successRate >= 95);
+
+            return (
+                <div className="bg-surface rounded-xl p-4 border border-gray-800">
+                    <div className="flex items-center gap-2 mb-3">
+                        <Icon name="Target" size={20} className="text-accent" />
+                        <h3 className="font-semibold">Taxa de Sucesso vs Tolerância</h3>
+                    </div>
+                    
+                    <div className="h-48 mb-4">
+                        <canvas ref={canvasRef} />
+                    </div>
+                    
+                    <div className="grid grid-cols-2 gap-3 text-xs">
+                        <div className="p-2 bg-deep rounded-lg">
+                            <span className="text-gray-400">Para 90% de sucesso:</span>
+                            <span className="ml-2 font-mono text-accent">
+                                {find90 ? `≤ ${find90.tolerance} anos de stress` : 'N/A'}
+                            </span>
+                        </div>
+                        <div className="p-2 bg-deep rounded-lg">
+                            <span className="text-gray-400">Para 95% de sucesso:</span>
+                            <span className="ml-2 font-mono text-accent">
+                                {find95 ? `≤ ${find95.tolerance} anos de stress` : 'N/A'}
+                            </span>
+                        </div>
+                    </div>
+                    
+                    <p className="text-xs text-gray-500 mt-3">
+                        Este gráfico mostra como a taxa de sucesso aumenta se você puder tolerar períodos de stress.
+                        "Tolerar" significa ter reserva ou flexibilidade para manter seu padrão de vida.
+                    </p>
+                </div>
+            );
+        };
+
+        // Option C: Portfolio Impact Analysis Component (extra withdrawn due to enforced minimum)
+        const PortfolioImpactAnalysis = ({ extraWithdrawalAnalysis, formatCurrency }) => {
+            const chartRef = useRef(null);
+            const canvasRef = useRef(null);
+
+            useEffect(() => {
+                if (!extraWithdrawalAnalysis || !canvasRef.current || extraWithdrawalAnalysis.impactTable.length === 0) return;
+
+                if (chartRef.current) {
+                    chartRef.current.destroy();
+                }
+
+                const ctx = canvasRef.current.getContext('2d');
+
+                chartRef.current = new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                        labels: extraWithdrawalAnalysis.impactTable.map(d => `${d.percentile}%`),
+                        datasets: [{
+                            label: 'Saque Extra Acumulado',
+                            data: extraWithdrawalAnalysis.impactTable.map(d => d.extraWithdrawn),
+                            backgroundColor: 'rgba(239, 68, 68, 0.7)',
+                            borderColor: '#ef4444',
+                            borderWidth: 1,
+                            borderRadius: 4
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: { display: false },
+                            tooltip: {
+                                backgroundColor: '#1a2234',
+                                titleColor: '#fff',
+                                bodyColor: '#9ca3af',
+                                callbacks: {
+                                    label: (ctx) => `R$ ${(ctx.raw / 1000).toFixed(0)}k extra sacado`
+                                }
+                            }
+                        },
+                        scales: {
+                            x: {
+                                grid: { display: false },
+                                ticks: { color: '#6b7280', font: { family: 'JetBrains Mono', size: 10 } },
+                                title: { display: true, text: 'Percentil de Simulações', color: '#9ca3af' }
+                            },
+                            y: {
+                                grid: { color: 'rgba(55, 65, 81, 0.3)' },
+                                ticks: { 
+                                    color: '#6b7280', 
+                                    font: { family: 'JetBrains Mono', size: 10 },
+                                    callback: (v) => `R$ ${(v / 1000).toFixed(0)}k`
+                                }
+                            }
+                        }
+                    }
+                });
+
+                return () => {
+                    if (chartRef.current) chartRef.current.destroy();
+                };
+            }, [extraWithdrawalAnalysis]);
+
+            if (!extraWithdrawalAnalysis || extraWithdrawalAnalysis.maxExtra === 0) {
+                return (
+                    <div className="bg-surface rounded-xl p-4 border border-accent/30">
+                        <div className="flex items-center gap-2 mb-3">
+                            <Icon name="PiggyBank" size={20} className="text-accent" />
+                            <h3 className="font-semibold text-accent">Impacto no Portfólio</h3>
+                        </div>
+                        <p className="text-gray-400 text-sm">
+                            Nenhum impacto extra! O saque recomendado sempre ficou acima ou igual ao mínimo necessário.
+                        </p>
+                    </div>
+                );
+            }
+
+            const impact90 = extraWithdrawalAnalysis.impactTable.find(d => d.percentile === 90);
+            const impact95 = extraWithdrawalAnalysis.impactTable.find(d => d.percentile === 95);
+
+            return (
+                <div className="bg-surface rounded-xl p-4 border border-red-500/30">
+                    <div className="flex items-center gap-2 mb-3">
+                        <Icon name="TrendingDown" size={20} className="text-red-400" />
+                        <h3 className="font-semibold">Impacto no Portfólio (Saque Extra)</h3>
+                    </div>
+                    
+                    <div className="grid grid-cols-3 gap-2 mb-4">
+                        <div className="text-center p-2 bg-deep rounded-lg">
+                            <div className="text-sm font-mono text-red-400">
+                                {formatCurrency(extraWithdrawalAnalysis.avgExtra)}
+                            </div>
+                            <div className="text-xs text-gray-500">Média por Período</div>
+                        </div>
+                        <div className="text-center p-2 bg-deep rounded-lg border border-red-500/30">
+                            <div className="text-sm font-mono text-red-300">
+                                {impact90 ? formatCurrency(impact90.extraWithdrawn) : 'N/A'}
+                            </div>
+                            <div className="text-xs text-gray-500">90% dos Cenários</div>
+                        </div>
+                        <div className="text-center p-2 bg-deep rounded-lg border border-red-500/50">
+                            <div className="text-sm font-mono text-red-200">
+                                {impact95 ? formatCurrency(impact95.extraWithdrawn) : 'N/A'}
+                            </div>
+                            <div className="text-xs text-gray-500">95% dos Cenários</div>
+                        </div>
+                    </div>
+                    
+                    <div className="h-40">
+                        <canvas ref={canvasRef} />
+                    </div>
+                    
+                    <p className="text-xs text-gray-500 mt-3">
+                        Quanto a mais foi retirado do portfólio (além do recomendado por G-K) para manter o saque mínimo.
+                        Este é o "custo" de manter seu padrão de vida durante períodos de stress.
+                    </p>
+                </div>
+            );
+        };
+
+        // Option D: Stress Chart Component (% of simulations where minimum was enforced)
+        const StressChart = ({ stressChartData, years, minimumWithdrawal }) => {
+            const chartRef = useRef(null);
+            const canvasRef = useRef(null);
+
+            useEffect(() => {
+                if (!stressChartData || !canvasRef.current || stressChartData.percentMinimumEnforced.length === 0) return;
+
+                if (chartRef.current) {
+                    chartRef.current.destroy();
+                }
+
+                const ctx = canvasRef.current.getContext('2d');
+                const labels = Array.from({ length: years + 1 }, (_, i) => `Ano ${i}`);
+
+                chartRef.current = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels,
+                        datasets: [
+                            {
+                                label: '% Simulações com Mínimo Forçado',
+                                data: stressChartData.percentMinimumEnforced,
+                                borderColor: '#ef4444',
+                                backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                                fill: true,
+                                tension: 0.3,
+                                borderWidth: 2,
+                                pointRadius: 0
+                            }
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        interaction: {
+                            intersect: false,
+                            mode: 'index'
+                        },
+                        plugins: {
+                            legend: {
+                                display: true,
+                                position: 'top',
+                                labels: {
+                                    color: '#9ca3af',
+                                    font: { family: 'Outfit', size: 10 },
+                                    usePointStyle: true,
+                                    padding: 10
+                                }
+                            },
+                            tooltip: {
+                                backgroundColor: '#1a2234',
+                                titleColor: '#fff',
+                                bodyColor: '#9ca3af',
+                                callbacks: {
+                                    label: (ctx) => `${ctx.raw.toFixed(1)}% das simulações precisaram do saque mínimo`
+                                }
+                            }
+                        },
+                        scales: {
+                            x: {
+                                grid: { color: 'rgba(55, 65, 81, 0.3)' },
+                                ticks: { color: '#6b7280', font: { family: 'JetBrains Mono', size: 10 } }
+                            },
+                            y: {
+                                min: 0,
+                                max: 100,
+                                grid: { color: 'rgba(55, 65, 81, 0.3)' },
+                                ticks: { 
+                                    color: '#6b7280', 
+                                    font: { family: 'JetBrains Mono', size: 10 },
+                                    callback: (v) => `${v}%`
+                                },
+                                title: { display: true, text: '% Simulações', color: '#9ca3af' }
+                            }
+                        }
+                    }
+                });
+
+                return () => {
+                    if (chartRef.current) chartRef.current.destroy();
+                };
+            }, [stressChartData, years]);
+
+            if (!stressChartData || stressChartData.percentMinimumEnforced.length === 0) {
+                return null;
+            }
+
+            // Find peak stress year
+            const maxStressPercent = Math.max(...stressChartData.percentMinimumEnforced);
+            const peakYear = stressChartData.percentMinimumEnforced.indexOf(maxStressPercent);
+
+            return (
+                <div className="bg-surface rounded-xl p-4 border border-gray-800">
+                    <div className="flex items-center gap-2 mb-3">
+                        <Icon name="Activity" size={20} className="text-red-400" />
+                        <h3 className="font-semibold">Quando o Saque Mínimo Foi Necessário</h3>
+                    </div>
+                    
+                    <div className="h-56">
+                        <canvas ref={canvasRef} />
+                    </div>
+                    
+                    <div className="flex justify-between items-center mt-3 p-2 bg-deep rounded-lg text-xs">
+                        <span className="text-gray-400">Pico de stress:</span>
+                        <span className="font-mono text-red-400">
+                            Ano {peakYear} ({maxStressPercent.toFixed(1)}% das simulações)
+                        </span>
+                    </div>
+                    
+                    <p className="text-xs text-gray-500 mt-3">
+                        Mostra em quais anos o saque mínimo de {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(minimumWithdrawal)} 
+                        {' '}precisou ser forçado (G-K recomendaria menos). O saque SEMPRE será pelo menos o mínimo.
+                    </p>
+                </div>
+            );
+        };
+
+        // Option E: Recovery Analysis Component
+        const RecoveryAnalysis = ({ recoveryAnalysis }) => {
+            const chartRef = useRef(null);
+            const canvasRef = useRef(null);
+
+            useEffect(() => {
+                if (!recoveryAnalysis || !canvasRef.current || Object.keys(recoveryAnalysis.recoveryTimeDistribution).length === 0) return;
+
+                if (chartRef.current) {
+                    chartRef.current.destroy();
+                }
+
+                const ctx = canvasRef.current.getContext('2d');
+                const labels = Object.keys(recoveryAnalysis.recoveryTimeDistribution).map(d => `${d} ano${d > 1 ? 's' : ''}`);
+                const data = Object.values(recoveryAnalysis.recoveryTimeDistribution);
+
+                chartRef.current = new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                        labels,
+                        datasets: [{
+                            label: 'Recuperações',
+                            data,
+                            backgroundColor: 'rgba(16, 185, 129, 0.7)',
+                            borderColor: '#10b981',
+                            borderWidth: 1,
+                            borderRadius: 4
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: { display: false },
+                            tooltip: {
+                                backgroundColor: '#1a2234',
+                                titleColor: '#fff',
+                                bodyColor: '#9ca3af'
+                            }
+                        },
+                        scales: {
+                            x: {
+                                grid: { display: false },
+                                ticks: { color: '#6b7280', font: { family: 'JetBrains Mono', size: 10 } },
+                                title: { display: true, text: 'Tempo até G-K > Mínimo', color: '#9ca3af' }
+                            },
+                            y: {
+                                grid: { color: 'rgba(55, 65, 81, 0.3)' },
+                                ticks: { color: '#6b7280', font: { family: 'JetBrains Mono', size: 10 } }
+                            }
+                        }
+                    }
+                });
+
+                return () => {
+                    if (chartRef.current) chartRef.current.destroy();
+                };
+            }, [recoveryAnalysis]);
+
+            if (!recoveryAnalysis || recoveryAnalysis.totalPeriods === 0) {
+                return (
+                    <div className="bg-surface rounded-xl p-4 border border-accent/30">
+                        <div className="flex items-center gap-2 mb-3">
+                            <Icon name="RefreshCw" size={20} className="text-accent" />
+                            <h3 className="font-semibold text-accent">Análise de Recuperação</h3>
+                        </div>
+                        <p className="text-gray-400 text-sm">
+                            Sem períodos de stress para analisar. G-K sempre recomendou acima do mínimo.
+                        </p>
+                    </div>
+                );
+            }
+
+            return (
+                <div className="bg-surface rounded-xl p-4 border border-gray-800">
+                    <div className="flex items-center gap-2 mb-3">
+                        <Icon name="RefreshCw" size={20} className="text-accent" />
+                        <h3 className="font-semibold">Recuperação do Mercado</h3>
+                    </div>
+                    
+                    <div className="grid grid-cols-4 gap-2 mb-4">
+                        <div className="text-center p-2 bg-deep rounded-lg">
+                            <div className="text-lg font-mono text-white">{recoveryAnalysis.totalPeriods}</div>
+                            <div className="text-xs text-gray-500">Períodos</div>
+                        </div>
+                        <div className="text-center p-2 bg-deep rounded-lg border border-accent/30">
+                            <div className="text-lg font-mono text-accent">{recoveryAnalysis.recoveredCount}</div>
+                            <div className="text-xs text-gray-500">Recuperou</div>
+                        </div>
+                        <div className="text-center p-2 bg-deep rounded-lg border border-red-500/30">
+                            <div className="text-lg font-mono text-red-400">{recoveryAnalysis.unrecoveredCount}</div>
+                            <div className="text-xs text-gray-500">Não Recuperou</div>
+                        </div>
+                        <div className="text-center p-2 bg-deep rounded-lg">
+                            <div className="text-lg font-mono text-yellow-400">{recoveryAnalysis.avgRecoveryTime.toFixed(1)}</div>
+                            <div className="text-xs text-gray-500">Anos Médio</div>
+                        </div>
+                    </div>
+                    
+                    {Object.keys(recoveryAnalysis.recoveryTimeDistribution).length > 0 && (
+                        <div className="h-32 mb-3">
+                            <canvas ref={canvasRef} />
+                        </div>
+                    )}
+                    
+                    <div className="flex items-center justify-between p-2 bg-deep rounded-lg">
+                        <span className="text-xs text-gray-400">Taxa de Recuperação:</span>
+                        <span className={`font-mono text-sm ${recoveryAnalysis.recoveryRate >= 80 ? 'text-accent' : 'text-warning'}`}>
+                            {recoveryAnalysis.recoveryRate.toFixed(1)}%
+                        </span>
+                    </div>
+                    
+                    <p className="text-xs text-gray-500 mt-3">
+                        {recoveryAnalysis.recoveryRate >= 90 
+                            ? "Excelente! O mercado geralmente se recupera e G-K volta a recomendar acima do mínimo."
+                            : recoveryAnalysis.recoveryRate >= 70
+                            ? "Boa recuperação, mas alguns períodos persistem até a depleção."
+                            : "Muitos períodos não se recuperam - o mínimo forçado pode estar acelerando a depleção."}
+                    </p>
+                </div>
+            );
+        };
+
+        // Stress Summary Card
+        const StressSummaryCard = ({ stressAnalysis, params, formatCurrency }) => {
+            if (!stressAnalysis) return null;
+            
+            const { duration, tolerance, extraWithdrawal, recovery, avgStressYearsPerSim } = stressAnalysis;
+            
+            // Find key thresholds
+            const tolerance95 = tolerance.find(t => t.successRate >= 95);
+            const impact90 = extraWithdrawal.impactTable.find(r => r.percentile === 90);
+            
+            return (
+                <div className="bg-gradient-to-br from-surface via-deep to-surface rounded-xl p-5 border border-gray-700">
+                    <div className="flex items-center gap-2 mb-4">
+                        <Icon name="Shield" size={24} className="text-accent" />
+                        <h3 className="text-lg font-semibold">Resumo da Análise de Stress</h3>
+                    </div>
+                    
+                    <div className="grid grid-cols-2 gap-4 mb-4">
+                        <div className="space-y-2">
+                            <div className="flex justify-between items-center">
+                                <span className="text-sm text-gray-400">Simulações com stress:</span>
+                                <span className="font-mono text-warning">
+                                    {duration.simsWithStress} ({((duration.simsWithStress / params.iterations) * 100).toFixed(1)}%)
+                                </span>
+                            </div>
+                            <div className="flex justify-between items-center">
+                                <span className="text-sm text-gray-400">Média anos c/ mínimo forçado:</span>
+                                <span className="font-mono text-yellow-400">{avgStressYearsPerSim.toFixed(1)} anos</span>
+                            </div>
+                            <div className="flex justify-between items-center">
+                                <span className="text-sm text-gray-400">Pior caso (duração contínua):</span>
+                                <span className="font-mono text-red-400">{duration.maxDuration} anos</span>
+                            </div>
+                        </div>
+                        <div className="space-y-2">
+                            <div className="flex justify-between items-center">
+                                <span className="text-sm text-gray-400">Tolerância p/ 95% sucesso:</span>
+                                <span className="font-mono text-accent">
+                                    {tolerance95 ? `${tolerance95.tolerance} anos` : 'N/A'}
+                                </span>
+                            </div>
+                            <div className="flex justify-between items-center">
+                                <span className="text-sm text-gray-400">Impacto extra (90%):</span>
+                                <span className="font-mono text-red-400">
+                                    {impact90 ? formatCurrency(impact90.extraWithdrawn) : 'R$ 0'}
+                                </span>
+                            </div>
+                            <div className="flex justify-between items-center">
+                                <span className="text-sm text-gray-400">Taxa de recuperação:</span>
+                                <span className={`font-mono ${recovery.recoveryRate >= 80 ? 'text-accent' : 'text-warning'}`}>
+                                    {recovery.recoveryRate.toFixed(1)}%
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div className="p-3 bg-midnight rounded-lg border border-gray-800">
+                        <p className="text-sm text-gray-300">
+                            {duration.simsWithStress === 0 ? (
+                                <span className="text-accent">
+                                    <strong>Estratégia robusta!</strong> Em nenhuma simulação o saque mínimo de {formatCurrency(params.minimumWithdrawalBRL)} 
+                                    precisou ser forçado. As regras de Guyton-Klinger sempre recomendaram valores acima do seu mínimo.
+                                </span>
+                            ) : recovery.recoveryRate >= 90 && duration.avgDuration <= 2 ? (
+                                <span>
+                                    <strong className="text-accent">Boa resiliência:</strong> Quando o mínimo precisou ser forçado, os períodos foram curtos 
+                                    (média {duration.avgDuration.toFixed(1)} anos) e {recovery.recoveryRate.toFixed(0)}% das vezes o mercado se recuperou. 
+                                    O impacto extra no portfólio foi de {impact90 ? formatCurrency(impact90.extraWithdrawn) : 'R$ 0'} em 90% dos casos.
+                                </span>
+                            ) : recovery.recoveryRate >= 70 ? (
+                                <span>
+                                    <strong className="text-warning">Atenção moderada:</strong> O saque mínimo precisou ser forçado em {duration.simsWithStress} simulações 
+                                    por média de {avgStressYearsPerSim.toFixed(1)} anos cada. Isso acelera a depleção do portfólio.
+                                </span>
+                            ) : (
+                                <span>
+                                    <strong className="text-danger">Risco significativo:</strong> O mínimo foi forçado frequentemente e muitos períodos não se recuperaram. 
+                                    Considere reduzir o saque mínimo necessário ou aumentar o patrimônio inicial.
+                                </span>
+                            )}
+                        </p>
+                    </div>
+                </div>
+            );
+        };
+
+        // Main App
+        const App = () => {
+            // Parameters state
+            const [params, setParams] = useState({
+                initialPortfolioUSD: 1000000,
+                initialPortfolioBRL: 0, // Portfolio in BRL (Brazilian fixed income)
+                initialFX: 5.50,
+                withdrawalRate: 4.7,
+                equityReturn: 7.0,
+                equityVolatility: 18.0,
+                bondReturn: 4.0,
+                bondVolatility: 6.0,
+                inflation: 4.5,
+                years: 30,
+                iterations: 2000,
+                tentInitialBondPercent: 35,
+                tentDuration: 5,
+                targetBondPercent: 20,
+                preservationThreshold: 0.20,
+                prosperityThreshold: 0.20,
+                adjustmentPercent: 0.10,
+                applyInflationRule: true,
+                minimumWithdrawalBRL: 200000,
+                useMinimumWithdrawal: false,
+                bucketYears: 5,
+                useBucketStrategy: true,
+                // Advanced modeling parameters
+                useStudentT: true,
+                degreesOfFreedom: 5, // Lower = fatter tails (5-7 typical for markets)
+                useDynamicCorrelation: true,
+                baseCorrelation: -0.4,
+                stressCorrelationMultiplier: 2.0, // Correlation becomes more negative in stress
+                // IPCA + Real Rate model
+                useIPCAModel: true,
+                expectedIPCA: 4.5, // Expected IPCA %
+                ipcaVolatility: 2.0, // IPCA volatility %
+                realSpread: 5.5, // Real spread over IPCA for fixed income %
+                // Tax model
+                useTaxModel: true,
+                equityTaxRate: 15, // % tax on equity gains (Irish ETFs)
+                fixedIncomeTaxRate: 15, // % tax on fixed income (simplified)
+                // Sequence of returns constraint
+                maxNegativeSequence: 10 // Max consecutive years of negative returns
+            });
+
+            const [results, setResults] = useState(null);
+            const [isRunning, setIsRunning] = useState(false);
+            const [progress, setProgress] = useState(0);
+
+            const updateParam = (key, value) => {
+                setParams(prev => ({ ...prev, [key]: value }));
+            };
+
+            const runSimulation = () => {
+                setIsRunning(true);
+                setProgress(0);
+
+                // Run in chunks to allow UI updates
+                setTimeout(() => {
+                    const engine = new MonteCarloEngine(params);
+                    const results = engine.runMonteCarlo(params.iterations);
+                    setResults(results);
+                    setIsRunning(false);
+                    setProgress(100);
+                }, 100);
+            };
+
+            const formatCurrency = (value, decimals = 0) => {
+                return new Intl.NumberFormat('pt-BR', {
+                    style: 'currency',
+                    currency: 'BRL',
+                    maximumFractionDigits: decimals
+                }).format(value);
+            };
+
+            return (
+                <div className="min-h-screen flex">
+                    {/* Sidebar */}
+                    <aside className="w-80 bg-deep border-r border-gray-800 p-5 overflow-y-auto">
+                        <div className="mb-6">
+                            <div className="flex items-center gap-2 mb-1">
+                                <Icon name="TrendingUp" size={24} className="text-accent" />
+                                <h1 className="text-xl font-bold">Monte Carlo</h1>
+                            </div>
+                            <p className="text-xs text-gray-500">Simulador de Aposentadoria SWR</p>
+                        </div>
+
+                        {/* Portfolio Section */}
+                        <div className="mb-6">
+                            <h2 className="text-sm font-semibold text-gray-300 mb-3 flex items-center gap-2">
+                                <Icon name="Wallet" size={16} />
+                                Portfólio Inicial
+                            </h2>
+                            <Input
+                                label="Patrimônio (USD)"
+                                value={params.initialPortfolioUSD}
+                                onChange={(v) => updateParam('initialPortfolioUSD', v)}
+                                unit="USD"
+                                min={100000}
+                                step={50000}
+                                tooltip="Renda variável em USD (sujeita a variação cambial)"
+                            />
+                            <Input
+                                label="Patrimônio (BRL)"
+                                value={params.initialPortfolioBRL}
+                                onChange={(v) => updateParam('initialPortfolioBRL', v)}
+                                unit="BRL"
+                                min={0}
+                                step={10000}
+                                tooltip="Renda fixa brasileira (sem exposição cambial)"
+                            />
+                            <Input
+                                label="Câmbio Inicial"
+                                value={params.initialFX}
+                                onChange={(v) => updateParam('initialFX', v)}
+                                unit="BRL/USD"
+                                min={3}
+                                max={10}
+                                step={0.1}
+                            />
+                            <Input
+                                label="Taxa de Retirada (SWR)"
+                                value={params.withdrawalRate}
+                                onChange={(v) => updateParam('withdrawalRate', v)}
+                                unit="%"
+                                min={2}
+                                max={8}
+                                step={0.1}
+                                tooltip="Safe Withdrawal Rate - percentual do portfolio retirado anualmente. Bengen revisou para 4.7% em 2006"
+                            />
+                        </div>
+
+                        {/* Returns Section */}
+                        <div className="mb-6">
+                            <h2 className="text-sm font-semibold text-gray-300 mb-3 flex items-center gap-2">
+                                <Icon name="BarChart3" size={16} />
+                                Retornos Esperados
+                            </h2>
+                            <Input
+                                label="Retorno RV (a.a.)"
+                                value={params.equityReturn}
+                                onChange={(v) => updateParam('equityReturn', v)}
+                                unit="%"
+                                min={0}
+                                max={15}
+                                step={0.5}
+                                tooltip="Retorno médio anual esperado da renda variável (ações/ETFs)"
+                            />
+                            <Input
+                                label="Volatilidade RV"
+                                value={params.equityVolatility}
+                                onChange={(v) => updateParam('equityVolatility', v)}
+                                unit="%"
+                                min={5}
+                                max={40}
+                                step={1}
+                                tooltip="Desvio padrão dos retornos da renda variável - mede a variação ano a ano"
+                            />
+                            <Input
+                                label="Retorno RF Real (a.a.)"
+                                value={params.bondReturn}
+                                onChange={(v) => updateParam('bondReturn', v)}
+                                unit="%"
+                                min={0}
+                                max={10}
+                                step={0.5}
+                                tooltip="Retorno médio anual esperado da renda fixa acima da inflação"
+                            />
+                            <Input
+                                label="Volatilidade RF"
+                                value={params.bondVolatility}
+                                onChange={(v) => updateParam('bondVolatility', v)}
+                                unit="%"
+                                min={1}
+                                max={15}
+                                step={0.5}
+                                tooltip="Desvio padrão dos retornos da renda fixa - geralmente menor que RV"
+                            />
+                            <Input
+                                label="Inflação Brasil"
+                                value={params.inflation}
+                                onChange={(v) => updateParam('inflation', v)}
+                                unit="%"
+                                min={2}
+                                max={12}
+                                step={0.5}
+                                tooltip="Taxa de inflação anual esperada no Brasil (IPCA)"
+                            />
+                        </div>
+
+                        {/* Tent Strategy Section */}
+                        <div className="mb-6">
+                            <h2 className="text-sm font-semibold text-gray-300 mb-3 flex items-center gap-2">
+                                <Icon name="Tent" size={16} />
+                                Estratégia Tenda
+                            </h2>
+                            <Input
+                                label="% RF Inicial (Tenda)"
+                                value={params.tentInitialBondPercent}
+                                onChange={(v) => updateParam('tentInitialBondPercent', v)}
+                                unit="%"
+                                min={10}
+                                max={60}
+                                step={5}
+                                tooltip="Alocação em RF durante o período de proteção"
+                            />
+                            <Input
+                                label="Duração da Tenda"
+                                value={params.tentDuration}
+                                onChange={(v) => updateParam('tentDuration', v)}
+                                unit="anos"
+                                min={1}
+                                max={15}
+                                step={1}
+                                tooltip="Quantos anos a alocação em RF fica elevada antes de começar a reduzir"
+                            />
+                            <Input
+                                label="% RF Alvo (Longo Prazo)"
+                                value={params.targetBondPercent}
+                                onChange={(v) => updateParam('targetBondPercent', v)}
+                                unit="%"
+                                min={5}
+                                max={50}
+                                step={5}
+                                tooltip="Alocação em RF após o período da tenda e transição"
+                            />
+                        </div>
+
+                        {/* Guyton-Klinger Section */}
+                        <div className="mb-6">
+                            <h2 className="text-sm font-semibold text-gray-300 mb-3 flex items-center gap-2">
+                                <Icon name="Settings2" size={16} />
+                                Regras Guyton-Klinger
+                            </h2>
+                            <Toggle
+                                label="Regra da Inflação"
+                                checked={params.applyInflationRule}
+                                onChange={(v) => updateParam('applyInflationRule', v)}
+                            />
+                            <Input
+                                label="Gatilho Preservation"
+                                value={params.preservationThreshold * 100}
+                                onChange={(v) => updateParam('preservationThreshold', v / 100)}
+                                unit="%"
+                                min={5}
+                                max={50}
+                                step={5}
+                                tooltip="Se taxa atual > taxa inicial + este %, reduz saque"
+                            />
+                            <Input
+                                label="Gatilho Prosperity"
+                                value={params.prosperityThreshold * 100}
+                                onChange={(v) => updateParam('prosperityThreshold', v / 100)}
+                                unit="%"
+                                min={5}
+                                max={50}
+                                step={5}
+                                tooltip="Se taxa atual < taxa inicial - este %, aumenta saque"
+                            />
+                            <Input
+                                label="Ajuste Percentual"
+                                value={params.adjustmentPercent * 100}
+                                onChange={(v) => updateParam('adjustmentPercent', v / 100)}
+                                unit="%"
+                                min={5}
+                                max={25}
+                                step={5}
+                                tooltip="Percentual de ajuste quando gatilhos são atingidos"
+                            />
+                            <div className="text-xs text-gray-500 mb-3">
+                                Gatilhos: ±{(params.preservationThreshold * 100).toFixed(0)}% da taxa inicial → ajuste de ±{(params.adjustmentPercent * 100).toFixed(0)}%
+                            </div>
+                        </div>
+
+                        {/* Minimum Withdrawal Section */}
+                        <div className="mb-6">
+                            <h2 className="text-sm font-semibold text-gray-300 mb-3 flex items-center gap-2">
+                                <Icon name="ShieldAlert" size={16} />
+                                Saque Mínimo Necessário
+                            </h2>
+                            <Toggle
+                                label="Definir Saque Mínimo"
+                                checked={params.useMinimumWithdrawal}
+                                onChange={(v) => updateParam('useMinimumWithdrawal', v)}
+                            />
+                            {params.useMinimumWithdrawal && (
+                                <Input
+                                    label="Valor Mínimo Anual"
+                                    value={params.minimumWithdrawalBRL}
+                                    onChange={(v) => updateParam('minimumWithdrawalBRL', v)}
+                                    unit="BRL"
+                                    min={0}
+                                    step={10000}
+                                    tooltip="Saque NUNCA será menor que este valor"
+                                />
+                            )}
+                            <div className="text-xs text-gray-500 mt-1">
+                                {params.useMinimumWithdrawal 
+                                    ? <span className="text-warning">Saque mínimo garantido: {formatCurrency(params.minimumWithdrawalBRL)}/ano (pode acelerar depleção)</span>
+                                    : "Desativado: saques seguem apenas as regras de G-K"
+                                }
+                            </div>
+                        </div>
+
+                        {/* Bucket Strategy Section */}
+                        <div className="mb-6">
+                            <h2 className="text-sm font-semibold text-gray-300 mb-3 flex items-center gap-2">
+                                <Icon name="Layers" size={16} />
+                                Estratégia de Buckets
+                            </h2>
+                            <Toggle
+                                label="Usar Buckets"
+                                checked={params.useBucketStrategy}
+                                onChange={(v) => updateParam('useBucketStrategy', v)}
+                            />
+                            {params.useBucketStrategy && (
+                                <Input
+                                    label="Anos de Proteção"
+                                    value={params.bucketYears}
+                                    onChange={(v) => updateParam('bucketYears', v)}
+                                    unit="anos"
+                                    min={1}
+                                    max={15}
+                                    step={1}
+                                    tooltip="Saques vêm exclusivamente da RF neste período"
+                                />
+                            )}
+                            <div className="text-xs text-gray-500">
+                                {params.useBucketStrategy 
+                                    ? `Primeiros ${params.bucketYears} anos: saques da RF apenas`
+                                    : "Desativado: saques proporcionais à alocação"
+                                }
+                            </div>
+                        </div>
+
+                        {/* Advanced Modeling Section */}
+                        <div className="mb-6">
+                            <h2 className="text-sm font-semibold text-gray-300 mb-3 flex items-center gap-2">
+                                <Icon name="FlaskConical" size={16} />
+                                Modelagem Avançada
+                            </h2>
+                            
+                            {/* Distribution Model */}
+                            <Toggle
+                                label="Distribuição T-Student"
+                                checked={params.useStudentT}
+                                onChange={(v) => updateParam('useStudentT', v)}
+                            />
+                            {params.useStudentT && (
+                                <Input
+                                    label="Graus de Liberdade"
+                                    value={params.degreesOfFreedom}
+                                    onChange={(v) => updateParam('degreesOfFreedom', v)}
+                                    min={3}
+                                    max={30}
+                                    step={1}
+                                    tooltip="Menor = caudas mais gordas (5-7 típico)"
+                                />
+                            )}
+                            
+                            {/* Dynamic Correlation */}
+                            <Toggle
+                                label="Correlação Dinâmica FX"
+                                checked={params.useDynamicCorrelation}
+                                onChange={(v) => updateParam('useDynamicCorrelation', v)}
+                            />
+                            {params.useDynamicCorrelation && (
+                                <>
+                                    <Input
+                                        label="Correlação Base"
+                                        value={params.baseCorrelation}
+                                        onChange={(v) => updateParam('baseCorrelation', v)}
+                                        min={-0.9}
+                                        max={0}
+                                        step={0.1}
+                                        tooltip="Correlação entre RV e câmbio em condições normais (negativa = dólar sobe quando bolsa cai)"
+                                    />
+                                    <Input
+                                        label="Multiplicador Stress"
+                                        value={params.stressCorrelationMultiplier}
+                                        onChange={(v) => updateParam('stressCorrelationMultiplier', v)}
+                                        min={1}
+                                        max={3}
+                                        step={0.1}
+                                        tooltip="Quanto a correlação aumenta em crises (flight to safety)"
+                                    />
+                                </>
+                            )}
+                            
+                            {/* IPCA Model */}
+                            <Toggle
+                                label="Modelo IPCA + Juro Real"
+                                checked={params.useIPCAModel}
+                                onChange={(v) => updateParam('useIPCAModel', v)}
+                            />
+                            {params.useIPCAModel && (
+                                <>
+                                    <Input
+                                        label="IPCA Esperado"
+                                        value={params.expectedIPCA}
+                                        onChange={(v) => updateParam('expectedIPCA', v)}
+                                        unit="%"
+                                        min={0}
+                                        max={15}
+                                        step={0.5}
+                                        tooltip="Inflação anual esperada no Brasil (meta do BC é 3%)"
+                                    />
+                                    <Input
+                                        label="Spread Real RF"
+                                        value={params.realSpread}
+                                        onChange={(v) => updateParam('realSpread', v)}
+                                        unit="%"
+                                        min={0}
+                                        max={10}
+                                        step={0.5}
+                                        tooltip="Juro real sobre IPCA"
+                                    />
+                                </>
+                            )}
+                            
+                            {/* Tax Model */}
+                            <Toggle
+                                label="Modelo Tributário"
+                                checked={params.useTaxModel}
+                                onChange={(v) => updateParam('useTaxModel', v)}
+                            />
+                            {params.useTaxModel && (
+                                <>
+                                    <Input
+                                        label="IR ETFs Irlandeses"
+                                        value={params.equityTaxRate}
+                                        onChange={(v) => updateParam('equityTaxRate', v)}
+                                        unit="%"
+                                        min={0}
+                                        max={30}
+                                        step={1}
+                                        tooltip="Alíquota de IR sobre ganhos de capital em ETFs irlandeses"
+                                    />
+                                    <Input
+                                        label="IR Renda Fixa BR"
+                                        value={params.fixedIncomeTaxRate}
+                                        onChange={(v) => updateParam('fixedIncomeTaxRate', v)}
+                                        unit="%"
+                                        min={0}
+                                        max={25}
+                                        step={1}
+                                        tooltip="Alíquota de IR sobre rendimentos da renda fixa brasileira"
+                                    />
+                                </>
+                            )}
+                            
+                            {/* Max Negative Sequence Constraint */}
+                            <div className="mt-3">
+                                <Input
+                                    label="Máx. Anos Negativos Consecutivos"
+                                    value={params.maxNegativeSequence}
+                                    onChange={(v) => updateParam('maxNegativeSequence', v)}
+                                    min={5}
+                                    max={20}
+                                    step={1}
+                                    tooltip="Limita sequências prolongadas de retornos negativos para refletir melhor a história do mercado"
+                                />
+                            </div>
+                            
+                            <div className="text-xs text-gray-500 mt-2 space-y-1">
+                                {params.useStudentT && <div>• T-Student (df={params.degreesOfFreedom}): captura cisnes negros</div>}
+                                {params.useDynamicCorrelation && <div>• Correl. dinâmica: -{Math.abs(params.baseCorrelation)} → -{Math.abs(params.baseCorrelation * params.stressCorrelationMultiplier).toFixed(1)} em crises</div>}
+                                {params.useIPCAModel && <div>• RF = IPCA ({params.expectedIPCA}%) + {params.realSpread}% real</div>}
+                                {params.useTaxModel && <div>• IR: {params.equityTaxRate}% RV, {params.fixedIncomeTaxRate}% RF</div>}
+                                <div>• Máx. {params.maxNegativeSequence} anos negativos consecutivos</div>
+                            </div>
+                        </div>
+
+                        {/* Simulation Section */}
+                        <div className="mb-6">
+                            <h2 className="text-sm font-semibold text-gray-300 mb-3 flex items-center gap-2">
+                                <Icon name="Play" size={16} />
+                                Simulação
+                            </h2>
+                            <Input
+                                label="Duração"
+                                value={params.years}
+                                onChange={(v) => updateParam('years', v)}
+                                unit="anos"
+                                min={10}
+                                max={50}
+                                step={5}
+                                tooltip="Horizonte de tempo da aposentadoria em anos"
+                            />
+                            <Input
+                                label="Iterações Monte Carlo"
+                                value={params.iterations}
+                                onChange={(v) => updateParam('iterations', v)}
+                                min={500}
+                                max={10000}
+                                step={500}
+                                tooltip="Número de cenários simulados - mais iterações = resultados mais precisos"
+                            />
+                        </div>
+
+                        {/* Run Button */}
+                        <button
+                            onClick={runSimulation}
+                            disabled={isRunning}
+                            className={`w-full py-3 rounded-xl font-semibold text-sm flex items-center justify-center gap-2
+                                ${isRunning 
+                                    ? 'bg-gray-700 text-gray-400 cursor-not-allowed' 
+                                    : 'bg-gradient-to-r from-accent to-accent-dim hover:opacity-90 text-white'
+                                } transition-all`}
+                        >
+                            {isRunning ? (
+                                <>
+                                    <div className="w-4 h-4 border-2 border-gray-400 border-t-transparent rounded-full animate-spin" />
+                                    Simulando...
+                                </>
+                            ) : (
+                                <>
+                                    <Icon name="Sparkles" size={18} />
+                                    Executar Simulação
+                                </>
+                            )}
+                        </button>
+
+                        {/* Initial values display */}
+                        <div className="mt-4 p-3 bg-midnight rounded-lg border border-gray-800">
+                            <div className="text-xs text-gray-500 mb-2">Valores Iniciais Calculados</div>
+                            <div className="space-y-1 text-xs">
+                                <div className="flex justify-between">
+                                    <span className="text-gray-400">Portfólio em BRL:</span>
+                                    <span className="font-mono text-accent">
+                                        {formatCurrency(params.initialPortfolioUSD * params.initialFX)}
+                                    </span>
+                                </div>
+                                <div className="flex justify-between">
+                                    <span className="text-gray-400">Saque Anual:</span>
+                                    <span className="font-mono text-info">
+                                        {formatCurrency(params.initialPortfolioUSD * (params.withdrawalRate / 100) * params.initialFX)}
+                                    </span>
+                                </div>
+                                <div className="flex justify-between">
+                                    <span className="text-gray-400">Saque Mensal:</span>
+                                    <span className="font-mono text-info">
+                                        {formatCurrency(params.initialPortfolioUSD * (params.withdrawalRate / 100) * params.initialFX / 12)}
+                                    </span>
+                                </div>
+                                {params.useMinimumWithdrawal && (
+                                    <div className="flex justify-between pt-1 border-t border-gray-800 mt-1">
+                                        <span className="text-gray-400">Mínimo Aceitável:</span>
+                                        <span className="font-mono text-warning">
+                                            {formatCurrency(params.minimumWithdrawalBRL)}
+                                        </span>
+                                    </div>
+                                )}
+                                {params.useBucketStrategy && (
+                                    <div className="flex justify-between pt-1 border-t border-gray-800 mt-1">
+                                        <span className="text-gray-400">Bucket RF ({params.bucketYears}a):</span>
+                                        <span className="font-mono text-blue-400">
+                                            {formatCurrency(params.initialPortfolioUSD * params.initialFX * (params.tentInitialBondPercent / 100))}
+                                        </span>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    </aside>
+
+                    {/* Main Content */}
+                    <main className="flex-1 p-6 overflow-y-auto">
+                        {!results ? (
+                            <div className="h-full flex items-center justify-center">
+                                <div className="text-center max-w-md">
+                                    <div className="w-20 h-20 mx-auto mb-6 rounded-2xl bg-surface flex items-center justify-center">
+                                        <Icon name="LineChart" size={40} className="text-accent" />
+                                    </div>
+                                    <h2 className="text-2xl font-bold mb-3">Simulador Monte Carlo</h2>
+                                    <p className="text-gray-400 mb-6">
+                                        Configure os parâmetros na barra lateral e execute a simulação 
+                                        para visualizar os cenários de aposentadoria baseados na estratégia 
+                                        Safe Withdrawal Rate com as regras de Guyton-Klinger.
+                                    </p>
+                                    <div className="grid grid-cols-2 gap-3 text-left">
+                                        <div className="p-3 bg-surface rounded-lg border border-gray-800">
+                                            <Icon name="Shield" size={18} className="text-accent mb-2" />
+                                            <div className="text-sm font-medium">Estratégia Tenda</div>
+                                            <div className="text-xs text-gray-500">Proteção nos primeiros anos</div>
+                                        </div>
+                                        <div className="p-3 bg-surface rounded-lg border border-gray-800">
+                                            <Icon name="ArrowUpDown" size={18} className="text-info mb-2" />
+                                            <div className="text-sm font-medium">Guyton-Klinger</div>
+                                            <div className="text-xs text-gray-500">Ajustes dinâmicos</div>
+                                        </div>
+                                        <div className="p-3 bg-surface rounded-lg border border-gray-800">
+                                            <Icon name="DollarSign" size={18} className="text-warning mb-2" />
+                                            <div className="text-sm font-medium">Câmbio Dinâmico</div>
+                                            <div className="text-xs text-gray-500">Correlação USD/BRL</div>
+                                        </div>
+                                        <div className="p-3 bg-surface rounded-lg border border-gray-800">
+                                            <Icon name="Target" size={18} className="text-danger mb-2" />
+                                            <div className="text-sm font-medium">Taxa Sobrevivência</div>
+                                            <div className="text-xs text-gray-500">Análise de cenários</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="fade-in space-y-6">
+                                {/* Header Stats */}
+                                <div className="grid grid-cols-5 gap-4">
+                                    <StatCard
+                                        title="Taxa de Sobrevivência"
+                                        value={results.survivalRate.toFixed(1)}
+                                        unit="%"
+                                        icon="ShieldCheck"
+                                        color={results.survivalRate >= 95 ? "accent" : results.survivalRate >= 80 ? "warning" : "danger"}
+                                        subtitle={`${results.totalSimulations - results.failedSimulations} de ${results.totalSimulations} cenários`}
+                                    />
+                                    <StatCard
+                                        title="Saque Médio Anual"
+                                        value={(results.overallMeanWithdrawal / 1000).toFixed(0)}
+                                        unit="k BRL"
+                                        icon="Calculator"
+                                        color="info"
+                                        subtitle="Média geral"
+                                    />
+                                    <StatCard
+                                        title="Saque Mediano Anual"
+                                        value={(results.overallMedianWithdrawal / 1000).toFixed(0)}
+                                        unit="k BRL"
+                                        icon="BarChart2"
+                                        color="accent"
+                                        subtitle="Mediana geral"
+                                    />
+                                    <StatCard
+                                        title="Pior Saque Anual"
+                                        value={(results.worstWithdrawal / 1000).toFixed(0)}
+                                        unit="k BRL"
+                                        icon="TrendingDown"
+                                        color="warning"
+                                        subtitle="Cenário mais adverso"
+                                    />
+                                    <StatCard
+                                        title="Portfólio Final Mediano"
+                                        value={(results.medianFinalPortfolio / 1000000).toFixed(2)}
+                                        unit="M BRL"
+                                        icon="PiggyBank"
+                                        color="info"
+                                        subtitle="Percentil 50"
+                                    />
+                                </div>
+
+                                {/* Charts Row 1 */}
+                                <div className="grid grid-cols-2 gap-6">
+                                    <div className="bg-surface rounded-xl p-4 border border-gray-800">
+                                        <div className="flex items-center gap-2 mb-4">
+                                            <Icon name="LineChart" size={20} className="text-accent" />
+                                            <h3 className="font-semibold">Evolução do Portfólio (BRL)</h3>
+                                        </div>
+                                        <PortfolioChart data={results.portfolioPercentiles} years={params.years} />
+                                        <p className="text-xs text-gray-500 mt-3">
+                                            Faixas de probabilidade: P10 (vermelho tracejado) a P90 (verde). 
+                                            A linha central representa a mediana dos cenários.
+                                        </p>
+                                    </div>
+                                    <div className="bg-surface rounded-xl p-4 border border-gray-800">
+                                        <div className="flex items-center gap-2 mb-4">
+                                            <Icon name="Banknote" size={20} className="text-info" />
+                                            <h3 className="font-semibold">Saques Anuais - Percentis (BRL)</h3>
+                                        </div>
+                                        <WithdrawalChart data={results.withdrawalPercentiles} years={params.years} />
+                                        <p className="text-xs text-gray-500 mt-3">
+                                            Variação dos saques ao longo do tempo devido aos gatilhos de Klinger, 
+                                            inflação e dinâmica cambial.
+                                        </p>
+                                    </div>
+                                </div>
+
+                                {/* Charts Row 2 - Withdrawal Evolution */}
+                                <div className="grid grid-cols-3 gap-6">
+                                    <div className="col-span-2 bg-surface rounded-xl p-4 border border-gray-800">
+                                        <div className="flex items-center gap-2 mb-4">
+                                            <Icon name="TrendingUp" size={20} className="text-purple-400" />
+                                            <h3 className="font-semibold">Evolução Média vs Mediana dos Saques</h3>
+                                        </div>
+                                        <WithdrawalEvolutionChart 
+                                            means={results.withdrawalMeans} 
+                                            medians={results.withdrawalMedians} 
+                                            years={params.years}
+                                            minimumWithdrawal={params.minimumWithdrawalBRL}
+                                            useMinimum={params.useMinimumWithdrawal}
+                                        />
+                                        <p className="text-xs text-gray-500 mt-3">
+                                            Comparação entre média e mediana dos saques anuais. 
+                                            {params.useMinimumWithdrawal && params.minimumWithdrawalBRL > 0 && 
+                                                ` Linha vermelha indica o saque mínimo aceitável de ${formatCurrency(params.minimumWithdrawalBRL)}.`
+                                            }
+                                        </p>
+                                    </div>
+                                    <WithdrawalStats 
+                                        results={results} 
+                                        formatCurrency={formatCurrency}
+                                        initialWithdrawalBRL={params.initialPortfolioUSD * (params.withdrawalRate / 100) * params.initialFX}
+                                    />
+                                </div>
+
+                                {/* Analysis Section */}
+                                <div className="grid grid-cols-2 gap-6">
+                                    <FailureAnalysis 
+                                        failureCauses={results.failureCauses}
+                                        avgFailureYear={results.avgFailureYear}
+                                        failedCount={results.failedSimulations}
+                                        total={results.totalSimulations}
+                                        failedByDepletion={results.failedByDepletion}
+                                    />
+                                    <RulesExplanation 
+                                        ruleStats={results.ruleStats}
+                                        survivalRate={results.survivalRate}
+                                    />
+                                </div>
+
+                                {/* Stress Analysis Section */}
+                                {params.useMinimumWithdrawal && results.stressAnalysis && (
+                                    <div className="space-y-6">
+                                        <div className="flex items-center gap-3 pt-4 border-t border-gray-800">
+                                            <Icon name="Activity" size={24} className="text-warning" />
+                                            <div>
+                                                <h2 className="text-lg font-bold">Análise de Períodos de Stress</h2>
+                                                <p className="text-xs text-gray-500">
+                                                    Quando o saque mínimo de {formatCurrency(params.minimumWithdrawalBRL)}/ano precisou ser forçado
+                                                </p>
+                                            </div>
+                                        </div>
+
+                                        {/* Stress Summary */}
+                                        <StressSummaryCard 
+                                            stressAnalysis={results.stressAnalysis}
+                                            params={params}
+                                            formatCurrency={formatCurrency}
+                                        />
+
+                                        {/* Option B & D: Tolerance and Stress Timeline */}
+                                        <div className="grid grid-cols-2 gap-6">
+                                            <ToleranceSuccessChart 
+                                                toleranceData={results.stressAnalysis.tolerance}
+                                                currentSurvivalRate={results.survivalRate}
+                                            />
+                                            <StressChart 
+                                                stressChartData={results.stressChartData}
+                                                years={params.years}
+                                                minimumWithdrawal={params.minimumWithdrawalBRL}
+                                            />
+                                        </div>
+
+                                        {/* Options A, C, E: Duration, Portfolio Impact, Recovery */}
+                                        <div className="grid grid-cols-3 gap-6">
+                                            <StressDurationAnalysis 
+                                                durationAnalysis={results.stressAnalysis.duration}
+                                                formatCurrency={formatCurrency}
+                                            />
+                                            <PortfolioImpactAnalysis 
+                                                extraWithdrawalAnalysis={results.stressAnalysis.extraWithdrawal}
+                                                formatCurrency={formatCurrency}
+                                            />
+                                            <RecoveryAnalysis 
+                                                recoveryAnalysis={results.stressAnalysis.recovery}
+                                            />
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* Dynamic Explanation */}
+                                <div className="bg-gradient-to-r from-surface to-deep rounded-xl p-5 border border-gray-800">
+                                    <div className="flex items-center gap-2 mb-3">
+                                        <Icon name="MessageSquare" size={20} className="text-accent" />
+                                        <h3 className="font-semibold">Análise dos Resultados</h3>
+                                    </div>
+                                    <div className="text-sm text-gray-300 space-y-3">
+                                        {results.survivalRate >= 95 ? (
+                                            <p>
+                                                <span className="text-accent font-semibold">Excelente!</span> Sua estratégia apresenta uma 
+                                                taxa de sobrevivência de {results.survivalRate.toFixed(1)}%, indicando alta probabilidade de 
+                                                sucesso ao longo de {params.years} anos.
+                                                {params.useBucketStrategy && (
+                                                    <span> A estratégia de buckets protege contra o risco de sequência de retornos nos primeiros {params.bucketYears} anos.</span>
+                                                )}
+                                            </p>
+                                        ) : results.survivalRate >= 80 ? (
+                                            <p>
+                                                <span className="text-warning font-semibold">Atenção:</span> A taxa de sobrevivência de{' '}
+                                                {results.survivalRate.toFixed(1)}% está em um nível moderado. 
+                                                {params.useMinimumWithdrawal && (
+                                                    <span> O saque mínimo de {formatCurrency(params.minimumWithdrawalBRL)} está acelerando a depleção do portfólio em cenários adversos.</span>
+                                                )}
+                                                {' '}Considere reduzir a taxa de retirada ou aumentar o período da estratégia Tenda.
+                                            </p>
+                                        ) : (
+                                            <p>
+                                                <span className="text-danger font-semibold">Risco elevado:</span> Com {results.survivalRate.toFixed(1)}% 
+                                                de taxa de sobrevivência, há risco significativo de depleção do portfólio.
+                                                {params.useMinimumWithdrawal && (
+                                                    <span> O saque mínimo forçado de {formatCurrency(params.minimumWithdrawalBRL)} contribui para este resultado.</span>
+                                                )}
+                                            </p>
+                                        )}
+                                        
+                                        {/* Advanced modeling impact */}
+                                        {(params.useStudentT || params.useTaxModel || params.useIPCAModel) && (
+                                            <p>
+                                                <span className="text-purple-400 font-medium">Modelagem Avançada:</span>{' '}
+                                                {params.useStudentT && (
+                                                    <span>Distribuição T-Student (df={params.degreesOfFreedom}) captura eventos extremos ("cisnes negros"). </span>
+                                                )}
+                                                {params.useIPCAModel && (
+                                                    <span>RF modelada como IPCA ({params.expectedIPCA}%) + {params.realSpread}% real. </span>
+                                                )}
+                                                {params.useTaxModel && (
+                                                    <span>Tributação de {params.equityTaxRate}% em RV e {params.fixedIncomeTaxRate}% em RF reduz retorno líquido.</span>
+                                                )}
+                                            </p>
+                                        )}
+                                        
+                                        <p>
+                                            <span className="text-purple-400 font-medium">Saques:</span> O saque médio ao longo de toda 
+                                            a simulação é de {formatCurrency(results.overallMeanWithdrawal)}/ano, com mediana de{' '}
+                                            {formatCurrency(results.overallMedianWithdrawal)}/ano. 
+                                            {params.useMinimumWithdrawal && (
+                                                <span className="text-gray-400"> O saque <strong>nunca</strong> fica abaixo de {formatCurrency(params.minimumWithdrawalBRL)}.</span>
+                                            )}
+                                        </p>
+
+                                        {params.useBucketStrategy && (
+                                            <p>
+                                                <span className="text-blue-400 font-medium">Bucket Strategy:</span> Nos primeiros {params.bucketYears} anos, 
+                                                os saques vêm exclusivamente da renda fixa, isolando a carteira de renda variável de vendas forçadas 
+                                                durante eventuais quedas de mercado. Isso mitiga o "sequence of returns risk".
+                                            </p>
+                                        )}
+                                        
+                                        {params.useMinimumWithdrawal && params.minimumWithdrawalBRL > 0 && results.stressAnalysis && (
+                                            <p>
+                                                <span className="text-orange-400 font-medium">Períodos de Stress:</span>{' '}
+                                                {results.stressAnalysis.duration.simsWithStress > 0 ? (
+                                                    <span>
+                                                        Em {results.stressAnalysis.duration.simsWithStress} simulações 
+                                                        ({((results.stressAnalysis.duration.simsWithStress / params.iterations) * 100).toFixed(1)}%), 
+                                                        o saque mínimo precisou ser forçado (G-K teria recomendado menos). 
+                                                        Isso durou em média {results.stressAnalysis.avgStressYearsPerSim.toFixed(1)} anos por simulação, 
+                                                        com {results.stressAnalysis.recovery.recoveryRate.toFixed(0)}% de recuperação.
+                                                    </span>
+                                                ) : (
+                                                    <span className="text-accent">
+                                                        O saque mínimo nunca precisou ser forçado - as regras de G-K sempre recomendaram valores acima!
+                                                    </span>
+                                                )}
+                                            </p>
+                                        )}
+
+                                        {results.avgFailureYear && (
+                                            <p className="text-gray-400">
+                                                Nos cenários de falha, a depleção ocorreu em média no ano {results.avgFailureYear.toFixed(0)}. 
+                                                Os principais fatores foram: {Object.keys(results.failureCauses).slice(0, 2).join(' e ').toLowerCase()}.
+                                            </p>
+                                        )}
+                                    </div>
+                                </div>
+
+                                {/* Technical Details */}
+                                <details className="bg-surface rounded-xl border border-gray-800 overflow-hidden">
+                                    <summary className="p-4 cursor-pointer flex items-center gap-2 hover:bg-deep transition-colors">
+                                        <Icon name="Code" size={18} className="text-gray-400" />
+                                        <span className="text-sm font-medium">Detalhes Técnicos da Simulação</span>
+                                    </summary>
+                                    <div className="p-4 pt-0 text-xs text-gray-400 font-mono space-y-2 border-t border-gray-800 mt-2">
+                                        <div>Iterações: {params.iterations.toLocaleString()}</div>
+                                        <div>Distribuição: {params.useStudentT ? `T-Student (df=${params.degreesOfFreedom})` : 'Normal (Box-Muller)'}</div>
+                                        <div className="border-t border-gray-700 pt-2 mt-2">--- Correlação FX ---</div>
+                                        {params.useDynamicCorrelation ? (
+                                            <>
+                                                <div>Correlação base: {params.baseCorrelation}</div>
+                                                <div>Mult. stress: {params.stressCorrelationMultiplier}x</div>
+                                                <div className="text-blue-400">Em crises: até {(params.baseCorrelation * params.stressCorrelationMultiplier).toFixed(2)}</div>
+                                            </>
+                                        ) : (
+                                            <div>Correlação RV/Câmbio: -0.40 (fixa)</div>
+                                        )}
+                                        <div>Reversion to mean FX: 10% a.a.</div>
+                                        <div>Stress multiplier FX: 1.30x em quedas</div>
+                                        <div className="border-t border-gray-700 pt-2 mt-2">--- Retornos ---</div>
+                                        {params.useIPCAModel ? (
+                                            <>
+                                                <div className="text-green-400">RF = IPCA + Juro Real</div>
+                                                <div>IPCA esperado: {params.expectedIPCA}% (±{params.ipcaVolatility}%)</div>
+                                                <div>Spread real: {params.realSpread}%</div>
+                                            </>
+                                        ) : (
+                                            <div>RF nominal: {params.bondReturn}% (±{params.bondVolatility}%)</div>
+                                        )}
+                                        <div>RV: {params.equityReturn}% (±{params.equityVolatility}%)</div>
+                                        <div className="border-t border-gray-700 pt-2 mt-2">--- Tributação ---</div>
+                                        {params.useTaxModel ? (
+                                            <>
+                                                <div className="text-yellow-400">Modelo tributário ativo</div>
+                                                <div>IR ETFs irlandeses: {params.equityTaxRate}%</div>
+                                                <div>IR RF brasileira: {params.fixedIncomeTaxRate}%</div>
+                                            </>
+                                        ) : (
+                                            <div className="text-gray-500">Sem tributação (cenário bruto)</div>
+                                        )}
+                                        <div className="border-t border-gray-700 pt-2 mt-2">--- Regras ---</div>
+                                        <div>Gatilhos G-K: ±{(params.preservationThreshold * 100).toFixed(0)}% → ±{(params.adjustmentPercent * 100).toFixed(0)}%</div>
+                                        <div>Transição Tenda → Alvo: 3 anos linear</div>
+                                        {params.useBucketStrategy && (
+                                            <div className="text-blue-400">Bucket Strategy: {params.bucketYears} anos (saques da RF)</div>
+                                        )}
+                                        {params.useMinimumWithdrawal && (
+                                            <div className="text-warning">Saque Mínimo: {formatCurrency(params.minimumWithdrawalBRL)}/ano</div>
+                                        )}
+                                        {results.stressAnalysis && results.stressAnalysis.duration.count > 0 && (
+                                            <>
+                                                <div className="border-t border-gray-700 pt-2 mt-2">--- Análise de Stress ---</div>
+                                                <div>Total períodos de stress: {results.stressAnalysis.duration.count}</div>
+                                                <div>Duração média: {results.stressAnalysis.duration.avgDuration.toFixed(2)} anos</div>
+                                                <div>Taxa de recuperação: {results.stressAnalysis.recovery.recoveryRate.toFixed(1)}%</div>
+                                            </>
+                                        )}
+                                    </div>
+                                </details>
+                            </div>
+                        )}
+                    </main>
+                </div>
+            );
+        };
+
+        ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+    </script>
+</body>
+</html>
