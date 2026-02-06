@@ -40,10 +40,11 @@ A clássica "Regra dos 4%" foi desenvolvida para o mercado americano com condiç
 
 | Funcionalidade | Descrição |
 |----------------|-----------|
-| **Distribuição T-Student** | Captura "cisnes negros" com caudas mais gordas que a Normal |
-| **Limite de Bear Markets** | Restringe sequências de retornos negativos ao máximo histórico |
+| **Distribuição T-Student** | Captura "cisnes negros" com caudas mais gordas que a Normal (aproximação via razão) |
+| **Modos Monte Carlo** | IID puro (padrão) ou NON-IID com limite de sequências negativas |
 | **Correlação Dinâmica** | Correlação USD/BRL intensifica em crises |
 | **Modelo IPCA + Juro Real** | RF modelada como IPCA + spread, evitando juros reais negativos irrealistas |
+| **Reprodutibilidade** | Seed opcional para replicar simulações exatas |
 
 ### Estratégias de Saque
 
@@ -88,10 +89,12 @@ ENTÃO reduzir saque em X%
 
 #### 2. Regra de Prosperidade
 ```
-SE taxa_atual < taxa_inicial × (1 - threshold)
+SENÃO SE taxa_atual < taxa_inicial × (1 - threshold)
 ENTÃO aumentar saque em X%
 ```
 **Objetivo**: Permitir melhor qualidade de vida quando o portfólio cresceu significativamente.
+
+> **Nota**: As regras de Preservação e Prosperidade são **mutuamente exclusivas** — apenas uma pode ser aplicada por ano. A Preservação tem prioridade sobre a Prosperidade.
 
 #### 3. Regra de Inflação
 ```
@@ -139,6 +142,21 @@ Mercados financeiros exibem "fat tails" — eventos extremos ocorrem mais freque
 
 Usar T-Student com 5-7 graus de liberdade captura melhor a probabilidade de crashes como 2008 ou 2020.
 
+> **Nota técnica**: A implementação usa aproximação via razão T = Z/√(χ²/df), com fator de escala para preservar a variância alvo. Para df baixos, a variância empírica pode divergir ligeiramente da teórica.
+
+### Modos de Monte Carlo (IID vs. NON-IID)
+
+O simulador oferece dois modos distintos:
+
+| Modo | Descrição | Implicação Estatística |
+|------|-----------|------------------------|
+| **IID (padrão)** | Retornos independentes e identicamente distribuídos | Simulação puramente estocástica |
+| **NON-IID** | Limita sequências negativas consecutivas | Introduz viés de seleção amostral |
+
+**Quando usar NON-IID**: O modo NON-IID pode ser útil se você acredita que bear markets prolongados além do histórico observado são improváveis. Porém, é importante entender que isso **não é Monte Carlo puro** — você está efetivamente condicionando as amostras, o que pode subestimar riscos de cauda.
+
+> **Aviso**: O modo NON-IID rejeita caminhos com sequências negativas além do limite, o que reduz a estimativa de risco em cenários extremos. Use com consciência das implicações.
+
 ### Correlação Dinâmica BRL/USD
 
 Em condições normais, a correlação entre retornos de RV e câmbio é aproximadamente -0.4 (quando bolsa cai, dólar sobe). Mas em crises extremas:
@@ -181,19 +199,24 @@ O simulador modela isso dinamicamente baseado na severidade da queda.
 |-----------|-----------|---------|
 | **Anos** | Horizonte de aposentadoria | 30 |
 | **Iterações** | Número de simulações Monte Carlo | 2000 |
-| **Máx. Anos Negativos** | Limite de anos consecutivos de queda | 10 |
+| **Modo** | IID (padrão) ou NON-IID (com limite de sequências negativas) | IID |
+| **Seed** | Semente para reprodutibilidade (vazio = aleatório) | - |
 
-> O limite de anos negativos previne cenários irrealistas. Historicamente, o S&P 500 nunca teve mais de 4 anos consecutivos negativos (1929-1932).
+> **Modo NON-IID**: O limite de anos negativos consecutivos previne cenários de bear markets prolongados. Historicamente, o S&P 500 nunca teve mais de 4 anos consecutivos negativos (1929-1932). Use com consciência de que isso introduz viés de seleção amostral.
 
-### Estratégia Tenda (Bond Tent)
+> **Reprodutibilidade**: Ao definir um seed, a mesma simulação pode ser replicada exatamente. Útil para debugging, comparações e validação de resultados.
+
+### Estratégia Tenda (Bond Glide Path)
 
 | Parâmetro | Descrição | Default |
 |-----------|-----------|---------|
 | **RF Inicial** | % em renda fixa no início | 35% |
-| **Duração Tenda** | Anos de alta alocação em RF | 5 |
+| **Duração Transição** | Anos para atingir a alocação alvo | 5 |
 | **RF Alvo** | % em renda fixa após transição | 20% |
 
-A estratégia "Tenda" começa com mais RF e gradualmente reduz, criando uma curva em forma de tenda invertida.
+A implementação é um **glide path linear** — a alocação de RF decresce linearmente do valor inicial até o alvo durante o período de transição, depois permanece constante. Diferente de uma "tenda" simétrica clássica (que sobe e desce), esta é uma **rampa descendente monotônica**.
+
+> **Nota técnica**: A nomenclatura "Bond Tent" é uma simplificação. Academicamente, esta é uma estratégia de "rising equity glide path" (Kitces & Pfau, 2015).
 
 ### Regras de Guyton-Klinger
 
@@ -351,11 +374,14 @@ python -m http.server 8000
 A suíte de testes cobre:
 - Distribuições estatísticas (Box-Muller, T-Student, Cholesky)
 - Regras de Guyton-Klinger (Preservação, Prosperidade, Inflação)
+- Exclusividade mútua das regras G-K
 - Cálculos de impostos
 - Modelo IPCA
 - Correlação dinâmica FX
 - Simulação de câmbio
+- Reprodutibilidade com seed (PRNG determinístico)
 - Casos extremos
+- Testes de regressão E2E (cenários seeded determinísticos)
 
 ### Hospedagem no GitHub Pages
 
@@ -371,16 +397,26 @@ A suíte de testes cobre:
 
 ### Geração de Números Aleatórios
 
+**PRNG Seedável (Mulberry32)**:
+```javascript
+// Algoritmo Mulberry32 - rápido, simples, período 2³²
+state = (state + 0x6D2B79F5) >>> 0
+// ... operações de mixing para distribuição uniforme
+```
+
 **Box-Muller Transform** para distribuição Normal:
 ```javascript
 Z = √(-2 ln U₁) × cos(2π U₂)
 ```
 
-**T-Student** via razão:
+**T-Student** via razão (aproximação):
+
 ```javascript
-T = Z / √(χ²/df)
+T = Z / √(χ²/df) × scaleFactor
+// scaleFactor = √((df-2)/df) para preservar variância
 ```
-onde χ² é soma de df variáveis normais ao quadrado.
+
+Onde χ² é soma de df variáveis normais ao quadrado. Note que para df ≤ 2, a variância teórica é indefinida.
 
 ### Correlação
 
@@ -392,6 +428,7 @@ Z₂_correlacionado = ρ × Z₁ + √(1-ρ²) × Z₂
 ### Simulação de Câmbio
 
 Modelo com:
+
 1. **Correlação com equity**: Quando RV cai, USD sobe
 2. **Mean reversion**: Câmbio tende a voltar à média de longo prazo
 3. **Stress multiplier**: Volatilidade aumenta em crises
@@ -401,7 +438,8 @@ Modelo com:
 ```javascript
 Imposto = Saque × Proporção_Ganhos × Alíquota
 ```
-onde Proporção_Ganhos cresce com o tempo (mais do portfólio é ganho, menos é principal).
+
+Onde Proporção_Ganhos cresce com o tempo (mais do portfólio é ganho, menos é principal).
 
 ---
 

@@ -93,15 +93,52 @@
         // MONTE CARLO SIMULATION ENGINE
         // ============================================
         
+        // ============================================
+        // SEEDED PSEUDO-RANDOM NUMBER GENERATOR
+        // Mulberry32: Fast, simple, seedable 32-bit PRNG
+        // ============================================
+        class SeededRNG {
+            constructor(seed) {
+                this.state = seed >>> 0; // Ensure unsigned 32-bit
+            }
+
+            // Returns float in [0, 1)
+            next() {
+                let t = this.state += 0x6D2B79F5;
+                t = Math.imul(t ^ t >>> 15, t | 1);
+                t ^= t + Math.imul(t ^ t >>> 7, t | 61);
+                return ((t ^ t >>> 14) >>> 0) / 4294967296;
+            }
+
+            // Get current state for reproducibility logging
+            getState() {
+                return this.state;
+            }
+        }
+
         class MonteCarloEngine {
             constructor(params) {
                 this.params = params;
+                // Initialize RNG: use provided seed or generate random seed
+                const seed = params.seed !== undefined ? params.seed : Math.floor(Math.random() * 2147483647);
+                this.rng = new SeededRNG(seed);
+                this.initialSeed = seed;
+            }
+
+            // Get the seed used for this engine (for reproducibility)
+            getSeed() {
+                return this.initialSeed;
+            }
+
+            // Uniform random in [0, 1) - uses seeded RNG
+            random() {
+                return this.rng.next();
             }
 
             // Box-Muller transform for normal distribution
             randomNormal(mean = 0, std = 1) {
-                const u1 = Math.random();
-                const u2 = Math.random();
+                const u1 = this.random();
+                const u2 = this.random();
                 const z0 = Math.sqrt(-2.0 * Math.log(u1)) * Math.cos(2.0 * Math.PI * u2);
                 return z0 * std + mean;
             }
@@ -243,34 +280,39 @@
             }
 
             // Apply Guyton-Klinger rules
+            // IMPORTANT: Rules are MUTUALLY EXCLUSIVE - only one adjustment rule can apply per year
+            // Priority: 1) Inflation skip (if enabled), 2) Preservation (portfolio stress), 3) Prosperity (portfolio growth)
             applyGuytonKlinger(currentWithdrawal, portfolioValue, initialWithdrawalRate, previousReturn, inflation) {
                 const currentRate = currentWithdrawal / portfolioValue;
                 const { preservationThreshold, prosperityThreshold, adjustmentPercent, applyInflationRule } = this.params;
-                
+
                 let newWithdrawal = currentWithdrawal;
                 let ruleApplied = null;
+                let inflationApplied = true;
 
                 // Inflation Rule: Don't adjust for inflation if previous year return was negative
                 if (applyInflationRule && previousReturn < 0) {
                     // Skip inflation adjustment
                     ruleApplied = 'inflation_skip';
+                    inflationApplied = false;
                 } else {
                     newWithdrawal *= (1 + inflation);
                 }
 
                 // Preservation Rule: If current rate > initial rate * (1 + threshold), reduce
+                // Note: Uses currentRate (before inflation adjustment) to determine trigger
                 if (currentRate > initialWithdrawalRate * (1 + preservationThreshold)) {
                     newWithdrawal *= (1 - adjustmentPercent);
                     ruleApplied = 'preservation';
                 }
-                
-                // Prosperity Rule: If current rate < initial rate * (1 - threshold), increase
-                if (currentRate < initialWithdrawalRate * (1 - prosperityThreshold)) {
+                // Prosperity Rule: ELSE IF current rate < initial rate * (1 - threshold), increase
+                // Mutually exclusive with preservation - only one can apply per year
+                else if (currentRate < initialWithdrawalRate * (1 - prosperityThreshold)) {
                     newWithdrawal *= (1 + adjustmentPercent);
                     ruleApplied = 'prosperity';
                 }
 
-                return { withdrawal: newWithdrawal, ruleApplied };
+                return { withdrawal: newWithdrawal, ruleApplied, inflationApplied };
             }
 
             // Run single simulation path
@@ -369,18 +411,22 @@
                     
                     // Generate equity return with appropriate distribution (Normal or Student's T)
                     let equityReturnYear = this.generateReturn(equityReturn / 100, equityVolatility / 100);
-                    
-                    // Apply constraint on consecutive negative returns
-                    if (equityReturnYear < 0) {
-                        consecutiveNegativeYears++;
-                        // If we've hit the max negative sequence, force a positive/neutral return
-                        if (consecutiveNegativeYears >= this.params.maxNegativeSequence) {
-                            // Generate a modest positive return (0% to +10%)
-                            equityReturnYear = Math.random() * 0.10;
-                            consecutiveNegativeYears = 0; // Reset counter
+
+                    // Apply constraint on consecutive negative returns (NON-IID MODE)
+                    // WARNING: This constraint breaks the IID assumption of pure Monte Carlo
+                    // Only enabled if useSequenceConstraint is true
+                    if (this.params.useSequenceConstraint) {
+                        if (equityReturnYear < 0) {
+                            consecutiveNegativeYears++;
+                            // If we've hit the max negative sequence, force a positive/neutral return
+                            if (consecutiveNegativeYears >= this.params.maxNegativeSequence) {
+                                // Generate a modest positive return (0% to +10%) using seeded RNG
+                                equityReturnYear = this.random() * 0.10;
+                                consecutiveNegativeYears = 0; // Reset counter
+                            }
+                        } else {
+                            consecutiveNegativeYears = 0; // Reset counter on positive year
                         }
-                    } else {
-                        consecutiveNegativeYears = 0; // Reset counter on positive year
                     }
                     
                     // Generate IPCA for the year (correlated with equity if using IPCA model)
@@ -2538,8 +2584,11 @@
                 useTaxModel: true,
                 equityTaxRate: 15, // % tax on equity gains (Irish ETFs)
                 fixedIncomeTaxRate: 15, // % tax on fixed income (simplified)
-                // Sequence of returns constraint
-                maxNegativeSequence: 10 // Max consecutive years of negative returns
+                // Sequence of returns constraint (NON-IID)
+                useSequenceConstraint: false, // OFF by default - pure IID Monte Carlo
+                maxNegativeSequence: 10, // Max consecutive years of negative returns (only if constraint enabled)
+                // Reproducibility
+                seed: null // null = random seed each run, number = deterministic
             });
 
             const [results, setResults] = useState(null);
@@ -2558,6 +2607,9 @@
                 setTimeout(() => {
                     const engine = new MonteCarloEngine(params);
                     const results = engine.runMonteCarlo(params.iterations);
+                    // Add seed to results for reproducibility tracking
+                    results.seed = engine.getSeed();
+                    results.mode = params.useSequenceConstraint ? 'constrained' : 'pure_iid';
                     setResults(results);
                     setIsRunning(false);
                     setProgress(100);
@@ -2975,26 +3027,36 @@
                                 )}
                             </div>
 
-                            {/* Max Negative Sequence Constraint */}
-                            <div className="p-2 bg-midnight rounded border border-gray-800">
-                                <Input
-                                    label="Máx. Anos Negativos Consecutivos"
-                                    value={params.maxNegativeSequence}
-                                    onChange={(v) => updateParam('maxNegativeSequence', v)}
-                                    min={5}
-                                    max={20}
-                                    step={1}
-                                    tooltip="Limita sequências irrealisticamente longas de retornos negativos. Historicamente, mercados globais nunca tiveram mais de 4-5 anos consecutivos de queda. Este parâmetro força um retorno neutro/positivo após X anos negativos seguidos, evitando cenários 'apocalípticos' que distorcem a análise. Valores típicos: 7-10 anos."
+                            {/* Sequence Constraint - NON-IID MODE */}
+                            <div className="p-2 bg-midnight rounded border border-warning/30">
+                                <Toggle
+                                    label="Restrição de Sequência (NON-IID)"
+                                    checked={params.useSequenceConstraint}
+                                    onChange={(v) => updateParam('useSequenceConstraint', v)}
                                 />
+                                <div className="text-xs text-warning -mt-2 mb-2">
+                                    ⚠️ ATENÇÃO: Viola premissa IID do Monte Carlo puro
+                                </div>
+                                {params.useSequenceConstraint && (
+                                    <Input
+                                        label="Máx. Anos Negativos Consecutivos"
+                                        value={params.maxNegativeSequence}
+                                        onChange={(v) => updateParam('maxNegativeSequence', v)}
+                                        min={3}
+                                        max={20}
+                                        step={1}
+                                        tooltip="MODO NON-IID: Limita sequências de retornos negativos, violando a premissa de independência (IID) do Monte Carlo puro. Historicamente, S&P 500 nunca teve mais de 4 anos negativos consecutivos (1929-1932). Ativar esta opção pode gerar resultados MAIS OTIMISTAS que a realidade estatística. Use com cautela e documente nas análises."
+                                    />
+                                )}
                             </div>
 
                             <div className="text-xs text-gray-500 mt-3 p-2 bg-surface rounded space-y-1">
                                 <div className="font-semibold text-gray-400 mb-1">Resumo da Modelagem:</div>
-                                {params.useStudentT && <div>• <span className="text-purple-400">T-Student (ν={params.degreesOfFreedom})</span>: captura cisnes negros</div>}
-                                {params.useDynamicCorrelation && <div>• <span className="text-blue-400">Correl. dinâmica</span>: {params.baseCorrelation} normal → {(params.baseCorrelation * params.stressCorrelationMultiplier).toFixed(1)} em crises</div>}
+                                <div>• <span className={params.useSequenceConstraint ? "text-warning" : "text-accent"}>Modo: {params.useSequenceConstraint ? `NON-IID (máx ${params.maxNegativeSequence} anos negativos)` : 'Monte Carlo Puro (IID)'}</span></div>
+                                {params.useStudentT && <div>• <span className="text-purple-400">T-Student (ν={params.degreesOfFreedom})</span>: caudas gordas ~aproximadas</div>}
+                                {params.useDynamicCorrelation && <div>• <span className="text-blue-400">Correl. dinâmica</span>: {params.baseCorrelation} → {(params.baseCorrelation * params.stressCorrelationMultiplier).toFixed(1)} em crises</div>}
                                 {params.useIPCAModel && <div>• <span className="text-green-400">Modelo IPCA</span>: RF = IPCA~{params.expectedIPCA}% + {params.realSpread}% real</div>}
                                 {params.useTaxModel && <div>• <span className="text-yellow-400">Tributação</span>: {params.equityTaxRate}% RV / {params.fixedIncomeTaxRate}% RF</div>}
-                                <div>• <span className="text-red-400">Limite</span>: máx. {params.maxNegativeSequence} anos negativos seguidos</div>
                             </div>
                         </div>
 
@@ -3023,6 +3085,24 @@
                                 step={500}
                                 tooltip="Número de cenários independentes simulados. Cada iteração gera uma 'história alternativa' de retornos, câmbio e inflação. Mais iterações = resultados mais estáveis e confiáveis, mas mais demorado. 1000-2000 é um bom equilíbrio entre precisão e velocidade. Para análise final, use 5000+."
                             />
+                            <div className="p-2 bg-midnight rounded border border-gray-800">
+                                <div className="flex items-center gap-2 mb-2">
+                                    <label className="text-xs text-gray-400 font-medium uppercase tracking-wide">
+                                        Seed (Reprodutibilidade)
+                                        <Tooltip text="Para reproduzir exatamente os mesmos resultados, insira um número inteiro como seed. Deixe vazio para gerar uma seed aleatória a cada execução. O seed usado será exibido após a simulação para que você possa salvá-lo e reproduzir os resultados posteriormente." />
+                                    </label>
+                                </div>
+                                <input
+                                    type="number"
+                                    value={params.seed || ''}
+                                    onChange={(e) => updateParam('seed', e.target.value ? parseInt(e.target.value) : null)}
+                                    placeholder="Aleatório"
+                                    className="w-full bg-deep border border-gray-700 rounded-lg px-3 py-2 text-sm font-mono text-white focus:outline-none focus:border-accent input-focus transition-all"
+                                />
+                                <div className="text-xs text-gray-600 mt-1">
+                                    {params.seed ? `Seed fixo: ${params.seed}` : 'Seed aleatório a cada execução'}
+                                </div>
+                            </div>
                         </div>
 
                         {/* Run Button */}
@@ -3142,6 +3222,31 @@
                             </div>
                         ) : (
                             <div className="fade-in space-y-6">
+                                {/* Reproducibility Info Bar */}
+                                <div className="flex items-center justify-between p-3 bg-surface rounded-lg border border-gray-800 text-xs">
+                                    <div className="flex items-center gap-4">
+                                        <span className="text-gray-400">
+                                            Modo: <span className={results.mode === 'pure_iid' ? 'text-accent font-semibold' : 'text-warning font-semibold'}>
+                                                {results.mode === 'pure_iid' ? 'Monte Carlo Puro (IID)' : 'Monte Carlo Restrito (NON-IID)'}
+                                            </span>
+                                        </span>
+                                        <span className="text-gray-600">|</span>
+                                        <span className="text-gray-400">
+                                            Seed: <span className="font-mono text-info">{results.seed}</span>
+                                        </span>
+                                    </div>
+                                    <button
+                                        onClick={() => {
+                                            navigator.clipboard.writeText(results.seed.toString());
+                                        }}
+                                        className="text-gray-500 hover:text-accent transition-colors flex items-center gap-1"
+                                        title="Copiar seed"
+                                    >
+                                        <Icon name="Copy" size={14} />
+                                        <span>Copiar</span>
+                                    </button>
+                                </div>
+
                                 {/* Header Stats */}
                                 <div className="grid grid-cols-5 gap-4">
                                     <StatCard

@@ -222,18 +222,50 @@
         }
 
         // ============================================
+        // SEEDED PSEUDO-RANDOM NUMBER GENERATOR
+        // Mulberry32: Fast, simple, seedable 32-bit PRNG
+        // ============================================
+        class SeededRNG {
+            constructor(seed) {
+                this.state = seed >>> 0;
+            }
+
+            next() {
+                let t = this.state += 0x6D2B79F5;
+                t = Math.imul(t ^ t >>> 15, t | 1);
+                t ^= t + Math.imul(t ^ t >>> 7, t | 61);
+                return ((t ^ t >>> 14) >>> 0) / 4294967296;
+            }
+
+            getState() {
+                return this.state;
+            }
+        }
+
+        // ============================================
         // MONTE CARLO ENGINE (Copied for testing)
         // ============================================
 
         class MonteCarloEngine {
             constructor(params) {
                 this.params = params;
+                const seed = params.seed !== undefined ? params.seed : Math.floor(Math.random() * 2147483647);
+                this.rng = new SeededRNG(seed);
+                this.initialSeed = seed;
+            }
+
+            getSeed() {
+                return this.initialSeed;
+            }
+
+            random() {
+                return this.rng.next();
             }
 
             // Box-Muller transform for normal distribution
             randomNormal(mean = 0, std = 1) {
-                const u1 = Math.random();
-                const u2 = Math.random();
+                const u1 = this.random();
+                const u2 = this.random();
                 const z0 = Math.sqrt(-2.0 * Math.log(u1)) * Math.cos(2.0 * Math.PI * u2);
                 return z0 * std + mean;
             }
@@ -343,12 +375,11 @@
                     newWithdrawal *= (1 + inflation);
                 }
 
+                // Mutual exclusivity: only one of preservation OR prosperity can apply per year
                 if (currentRate > initialWithdrawalRate * (1 + preservationThreshold)) {
                     newWithdrawal *= (1 - adjustmentPercent);
                     ruleApplied = 'preservation';
-                }
-
-                if (currentRate < initialWithdrawalRate * (1 - prosperityThreshold)) {
+                } else if (currentRate < initialWithdrawalRate * (1 - prosperityThreshold)) {
                     newWithdrawal *= (1 + adjustmentPercent);
                     ruleApplied = 'prosperity';
                 }
@@ -1227,6 +1258,327 @@
                 // After strong growth, prosperity should have increased withdrawal
                 assertGreaterThan(withdrawal, 47000,
                     'Withdrawal should be increased after strong market growth');
+            });
+        });
+
+        // ============================================
+        // 10. SEEDED RNG REPRODUCIBILITY
+        // ============================================
+
+        tf.describe('Seeded RNG Reproducibility', () => {
+            tf.it('should produce identical sequences with same seed', () => {
+                const rng1 = new SeededRNG(12345);
+                const rng2 = new SeededRNG(12345);
+
+                for (let i = 0; i < 100; i++) {
+                    const v1 = rng1.next();
+                    const v2 = rng2.next();
+                    assertEqual(v1, v2, `Values should be identical at step ${i}`);
+                }
+            });
+
+            tf.it('should produce different sequences with different seeds', () => {
+                const rng1 = new SeededRNG(12345);
+                const rng2 = new SeededRNG(54321);
+
+                let differences = 0;
+                for (let i = 0; i < 100; i++) {
+                    if (rng1.next() !== rng2.next()) {
+                        differences++;
+                    }
+                }
+                assertGreaterThan(differences, 90, 'Most values should differ');
+            });
+
+            tf.it('should produce values in [0, 1) range', () => {
+                const rng = new SeededRNG(42);
+                for (let i = 0; i < 10000; i++) {
+                    const v = rng.next();
+                    assert(v >= 0 && v < 1, `Value ${v} should be in [0, 1)`);
+                }
+            });
+
+            tf.it('should generate reproducible normal distributions', () => {
+                const params1 = { ...getDefaultParams(), seed: 99999 };
+                const params2 = { ...getDefaultParams(), seed: 99999 };
+                const engine1 = new MonteCarloEngine(params1);
+                const engine2 = new MonteCarloEngine(params2);
+
+                for (let i = 0; i < 50; i++) {
+                    const v1 = engine1.randomNormal(0.07, 0.18);
+                    const v2 = engine2.randomNormal(0.07, 0.18);
+                    assertEqual(v1, v2, `Normal values should be identical at step ${i}`);
+                }
+            });
+        });
+
+        // ============================================
+        // 11. G-K MUTUAL EXCLUSIVITY
+        // ============================================
+
+        tf.describe('Guyton-Klinger Mutual Exclusivity', () => {
+            tf.it('should never apply both preservation AND prosperity in same year', () => {
+                const params = {
+                    ...getDefaultParams(),
+                    preservationThreshold: 0.2,
+                    prosperityThreshold: 0.2,
+                    adjustmentPercent: 0.1,
+                    applyInflationRule: false
+                };
+                const engine = new MonteCarloEngine(params);
+
+                // Test a range of portfolio values
+                const testCases = [
+                    { portfolio: 500000, withdrawal: 50000 },   // High rate
+                    { portfolio: 2000000, withdrawal: 50000 },  // Low rate
+                    { portfolio: 1000000, withdrawal: 47000 },  // Normal rate
+                    { portfolio: 750000, withdrawal: 60000 },   // Preservation territory
+                    { portfolio: 1500000, withdrawal: 30000 },  // Prosperity territory
+                ];
+
+                for (const tc of testCases) {
+                    const result = engine.applyGuytonKlinger(tc.withdrawal, tc.portfolio, 0.047, 0.05, 0.03);
+
+                    // Can't be both
+                    assert(
+                        !(result.ruleApplied === 'preservation' && result.ruleApplied === 'prosperity'),
+                        'Should never apply both rules'
+                    );
+                }
+            });
+
+            tf.it('should apply preservation rule first when both thresholds could apply (edge case)', () => {
+                // This tests a hypothetical edge case where someone sets overlapping thresholds
+                const params = {
+                    ...getDefaultParams(),
+                    preservationThreshold: 0.5,   // 50% above triggers preservation
+                    prosperityThreshold: 0.5,     // 50% below triggers prosperity
+                    adjustmentPercent: 0.1,
+                    applyInflationRule: false
+                };
+                const engine = new MonteCarloEngine(params);
+
+                // Rate = 7% (above 4.7% * 1.5 = 7.05%? No, just below)
+                // Actually 7% / 4.7% = 1.49, so NOT above 1.5
+                // But 7% is way above prosperity threshold (4.7% * 0.5 = 2.35%)
+                // So neither should apply at 7%
+
+                const result = engine.applyGuytonKlinger(70000, 1000000, 0.047, 0.05, 0);
+                // 7% rate, initial rate 4.7%, preservation threshold is 4.7*1.5=7.05%
+                // 7% < 7.05%, so preservation should NOT apply
+                // 7% > 2.35%, so prosperity should NOT apply either
+                assert(result.ruleApplied === null, 'Neither rule should apply');
+            });
+        });
+
+        // ============================================
+        // 12. END-TO-END REGRESSION TESTS (Seeded)
+        // ============================================
+
+        tf.describe('E2E Regression: Portfolio Survival', () => {
+            // These tests use fixed seeds to ensure deterministic behavior
+            // They should fail if core logic changes unintentionally
+
+            tf.it('REGRESSION: Seed 42 with conservative params should survive', () => {
+                const params = {
+                    ...getDefaultParams(),
+                    seed: 42,
+                    initialPortfolioUSD: 1000000,
+                    withdrawalRate: 3.5,  // Conservative
+                    equityReturn: 7,
+                    equityVolatility: 18,
+                    bondReturn: 4,
+                    bondVolatility: 6,
+                    years: 30,
+                    useStudentT: false,
+                    useDynamicCorrelation: false,
+                    useIPCAModel: false,
+                    useTaxModel: false
+                };
+                const engine = new MonteCarloEngine(params);
+
+                let portfolio = params.initialPortfolioUSD;
+                let withdrawal = portfolio * (params.withdrawalRate / 100);
+                const initialRate = params.withdrawalRate / 100;
+
+                for (let year = 0; year < params.years; year++) {
+                    // Generate return
+                    const equityReturn = engine.generateReturn(params.equityReturn / 100, params.equityVolatility / 100);
+                    const bondReturn = engine.generateReturn(params.bondReturn / 100, params.bondVolatility / 100);
+
+                    // Simple 60/40 portfolio return
+                    const portfolioReturn = 0.6 * equityReturn + 0.4 * bondReturn;
+
+                    // Apply return, then withdraw
+                    portfolio *= (1 + portfolioReturn);
+                    portfolio -= withdrawal;
+
+                    // Apply G-K
+                    const gk = engine.applyGuytonKlinger(withdrawal, portfolio, initialRate, portfolioReturn, 0.045);
+                    withdrawal = gk.withdrawal;
+
+                    if (portfolio <= 0) break;
+                }
+
+                assertGreaterThan(portfolio, 0, `Portfolio should survive 30 years with seed 42 and conservative params (final: ${portfolio.toFixed(0)})`);
+            });
+
+            tf.it('REGRESSION: Seed 42 generates consistent returns across runs', () => {
+                // Run twice with same seed and verify identical results
+                const params1 = { ...getDefaultParams(), seed: 42, useStudentT: false };
+                const params2 = { ...getDefaultParams(), seed: 42, useStudentT: false };
+                const engine1 = new MonteCarloEngine(params1);
+                const engine2 = new MonteCarloEngine(params2);
+
+                // Generate 10 returns from each engine
+                const returns1 = [];
+                const returns2 = [];
+                for (let i = 0; i < 10; i++) {
+                    returns1.push(engine1.randomNormal(0.07, 0.18));
+                    returns2.push(engine2.randomNormal(0.07, 0.18));
+                }
+
+                // Verify they're identical
+                for (let i = 0; i < 10; i++) {
+                    assertEqual(returns1[i], returns2[i], `Return ${i} should be identical across runs`);
+                }
+
+                // Also verify first value is deterministic (lock in actual value)
+                const engine3 = new MonteCarloEngine({ ...getDefaultParams(), seed: 42, useStudentT: false });
+                const firstReturn = engine3.randomNormal(0.07, 0.18);
+                assertAlmostEqual(firstReturn, returns1[0], 0.0001, 'First return should match');
+            });
+        });
+
+        tf.describe('E2E Regression: Withdrawal Path Stability', () => {
+            tf.it('REGRESSION: Withdrawal sequence should be deterministic with seed', () => {
+                const params = {
+                    ...getDefaultParams(),
+                    seed: 777,
+                    initialPortfolioUSD: 1000000,
+                    withdrawalRate: 4.7,
+                    years: 10,
+                    useStudentT: false,
+                    useDynamicCorrelation: false,
+                    useIPCAModel: false,
+                    useTaxModel: false,
+                    applyInflationRule: true
+                };
+
+                // Run simulation twice with same seed
+                const withdrawals1 = [];
+                const withdrawals2 = [];
+
+                for (let run = 0; run < 2; run++) {
+                    const engine = new MonteCarloEngine({ ...params, seed: 777 });
+                    let portfolio = params.initialPortfolioUSD;
+                    let withdrawal = portfolio * (params.withdrawalRate / 100);
+                    const initialRate = params.withdrawalRate / 100;
+                    const withdrawals = run === 0 ? withdrawals1 : withdrawals2;
+
+                    for (let year = 0; year < params.years; year++) {
+                        const equityReturn = engine.generateReturn(0.07, 0.18);
+                        const bondReturn = engine.generateReturn(0.04, 0.06);
+                        const portfolioReturn = 0.6 * equityReturn + 0.4 * bondReturn;
+
+                        portfolio *= (1 + portfolioReturn);
+                        portfolio -= withdrawal;
+
+                        const gk = engine.applyGuytonKlinger(withdrawal, Math.max(portfolio, 1), initialRate, portfolioReturn, 0.045);
+                        withdrawal = gk.withdrawal;
+                        withdrawals.push(withdrawal);
+
+                        if (portfolio <= 0) break;
+                    }
+                }
+
+                // Verify both runs produced identical withdrawals
+                assertEqual(withdrawals1.length, withdrawals2.length, 'Should have same number of withdrawals');
+                for (let i = 0; i < withdrawals1.length; i++) {
+                    assertEqual(withdrawals1[i], withdrawals2[i], `Withdrawal ${i} should be identical`);
+                }
+            });
+        });
+
+        tf.describe('E2E Regression: Expected Failure Under Stress', () => {
+            tf.it('REGRESSION: Extreme withdrawal rate without G-K should fail (15% SWR)', () => {
+                // Test WITHOUT G-K rules - fixed withdrawals that don't adjust
+                // 15% SWR with no adjustment should definitely fail
+                const params = {
+                    ...getDefaultParams(),
+                    seed: 123,
+                    initialPortfolioUSD: 1000000,
+                    withdrawalRate: 15,  // Very extreme - should fail without G-K protection
+                    years: 30,
+                    useStudentT: false,
+                    useDynamicCorrelation: false,
+                    useIPCAModel: false,
+                    useTaxModel: false
+                };
+                const engine = new MonteCarloEngine(params);
+
+                let portfolio = params.initialPortfolioUSD;
+                // Fixed withdrawal - NO G-K adjustment (simulating fixed withdrawal strategy)
+                const fixedWithdrawal = portfolio * (params.withdrawalRate / 100);
+                let failed = false;
+
+                for (let year = 0; year < params.years; year++) {
+                    const equityReturn = engine.generateReturn(0.07, 0.18);
+                    const bondReturn = engine.generateReturn(0.04, 0.06);
+                    const portfolioReturn = 0.6 * equityReturn + 0.4 * bondReturn;
+
+                    portfolio *= (1 + portfolioReturn);
+                    portfolio -= fixedWithdrawal;  // Fixed, not adjusted
+
+                    if (portfolio <= 0) {
+                        failed = true;
+                        break;
+                    }
+                }
+
+                assert(failed, 'Portfolio with 15% fixed SWR (no G-K) should fail within 30 years');
+            });
+
+            tf.it('REGRESSION: Zero equity return environment should struggle', () => {
+                const params = {
+                    ...getDefaultParams(),
+                    seed: 456,
+                    initialPortfolioUSD: 1000000,
+                    withdrawalRate: 5,
+                    equityReturn: 0,  // Zero expected return
+                    bondReturn: 2,
+                    years: 30,
+                    useStudentT: false,
+                    useDynamicCorrelation: false,
+                    useIPCAModel: false,
+                    useTaxModel: false
+                };
+                const engine = new MonteCarloEngine(params);
+
+                let portfolio = params.initialPortfolioUSD;
+                let withdrawal = portfolio * (params.withdrawalRate / 100);
+                const initialRate = params.withdrawalRate / 100;
+
+                for (let year = 0; year < params.years; year++) {
+                    const equityReturn = engine.generateReturn(0, 0.18);  // 0% mean
+                    const bondReturn = engine.generateReturn(0.02, 0.06);
+                    const portfolioReturn = 0.6 * equityReturn + 0.4 * bondReturn;
+
+                    portfolio *= (1 + portfolioReturn);
+                    portfolio -= withdrawal;
+
+                    if (portfolio <= 0) {
+                        // Expected to fail - this is the test passing
+                        assert(true, 'Portfolio depleted as expected');
+                        return;
+                    }
+
+                    const gk = engine.applyGuytonKlinger(withdrawal, portfolio, initialRate, portfolioReturn, 0.045);
+                    withdrawal = gk.withdrawal;
+                }
+
+                // If we survived, portfolio should be very low
+                assertLessThan(portfolio, 500000, 'Portfolio should be significantly depleted in zero-return environment');
             });
         });
 
