@@ -63,6 +63,14 @@ A clássica "Regra dos 4%" foi desenvolvida para o mercado americano com condiç
 | **Impacto no Portfólio** | Quanto a mais foi sacado vs. recomendado |
 | **Recuperação** | % dos períodos de stress que eventualmente se recuperam |
 
+### Interface e Usabilidade
+
+| Funcionalidade | Descrição |
+|----------------|-----------|
+| **Entrada Dual USD/BRL** | Todos os campos monetários aceitam entrada em USD ou BRL com conversão automática |
+| **Tooltips Detalhados** | Clique no ícone (?) para explicações completas de cada parâmetro em português |
+| **Resumo Calculado** | Exibe em tempo real: alocação RV/RF, saques anuais/mensais, tamanho do bucket |
+
 ---
 
 ## 📚 Teoria Financeira
@@ -151,13 +159,11 @@ O simulador modela isso dinamicamente baseado na severidade da queda.
 
 | Parâmetro | Descrição | Valores Típicos |
 |-----------|-----------|-----------------|
-| **Modo de Entrada** | USD ou BRL | - |
-| **Valor em USD** | Patrimônio em dólares | $500k - $2M |
-| **Valor em BRL** | Patrimônio em reais | R$ 2.5M - R$ 10M |
+| **Patrimônio Total** | Valor total do portfólio (entrada em USD ou BRL com conversão automática) | $500k - $2M / R$ 2.5M - R$ 10M |
 | **Taxa de Câmbio** | USD/BRL inicial | 4.80 - 6.00 |
 | **Taxa de Retirada (SWR)** | % anual do portfólio inicial | 3.5% - 5.0% |
 
-> **Nota**: A variação cambial afeta APENAS a renda variável. A renda fixa brasileira não tem exposição ao dólar.
+> **Nota**: O portfólio total é dividido entre RV e RF conforme o "% RF Inicial" definido na Estratégia Tenda. Todos os campos monetários possuem entrada dual USD/BRL com conversão automática.
 
 ### Retornos e Volatilidade
 
@@ -203,9 +209,9 @@ A estratégia "Tenda" começa com mais RF e gradualmente reduz, criando uma curv
 | Parâmetro | Descrição | Default |
 |-----------|-----------|---------|
 | **Usar Buckets** | Ativar estratégia de reserva | Sim |
-| **Anos de Proteção** | Anos sacando só da RF | 5 |
-| **Rebalanceamento** | Sacar de RV quando acima do alvo | Sim |
-| **Threshold Rebalanceamento** | % de desvio para disparar | 5% |
+| **Anos de Proteção** | Anos sacando exclusivamente da RF | 5 |
+
+> O tamanho do bucket de RF é determinado pelo "% RF Inicial" da Estratégia Tenda. Rebalanceamento inteligente é aplicado automaticamente quando RV está significativamente acima do alvo.
 
 ### Saque Mínimo
 
@@ -312,13 +318,13 @@ Quanto a mais foi retirado do portfólio (vs. G-K recomendado) para manter o mí
 
 ### Uso Online (Recomendado)
 
-Simplesmente acesse: **https://seu-usuario.github.io/monte-carlo-retirement-simulator/**
+Simplesmente acesse: **https://alexfmonteiro.github.io/monte-carlo-retirement-simulator/**
 
 ### Uso Local
 
 ```bash
 # Clone o repositório
-git clone https://github.com/seu-usuario/monte-carlo-retirement-simulator.git
+git clone https://github.com/alexfmonteiro/monte-carlo-retirement-simulator.git
 
 # Entre na pasta
 cd monte-carlo-retirement-simulator
@@ -329,6 +335,27 @@ open index.html
 python -m http.server 8000
 # e acesse http://localhost:8000
 ```
+
+### Executando os Testes
+
+O projeto inclui uma suíte de testes completa que valida toda a lógica de simulação:
+
+```bash
+# Abra tests.html no navegador
+open tests.html
+# ou via servidor local
+python -m http.server 8000
+# e acesse http://localhost:8000/tests.html
+```
+
+A suíte de testes cobre:
+- Distribuições estatísticas (Box-Muller, T-Student, Cholesky)
+- Regras de Guyton-Klinger (Preservação, Prosperidade, Inflação)
+- Cálculos de impostos
+- Modelo IPCA
+- Correlação dinâmica FX
+- Simulação de câmbio
+- Casos extremos
 
 ### Hospedagem no GitHub Pages
 

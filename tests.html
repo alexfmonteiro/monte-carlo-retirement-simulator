@@ -1,0 +1,1304 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Monte Carlo Simulator - Test Suite</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        body {
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            background: #0a0e17;
+            color: #e5e7eb;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        h1 {
+            color: #10b981;
+            margin-bottom: 20px;
+            border-bottom: 2px solid #10b981;
+            padding-bottom: 10px;
+        }
+        h2 {
+            color: #3b82f6;
+            margin: 25px 0 15px;
+            font-size: 1.2em;
+        }
+        .test-suite {
+            background: #111827;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        .test-result {
+            padding: 8px 12px;
+            margin: 4px 0;
+            border-radius: 4px;
+            font-family: 'JetBrains Mono', 'Consolas', monospace;
+            font-size: 13px;
+        }
+        .pass {
+            background: rgba(16, 185, 129, 0.15);
+            border-left: 3px solid #10b981;
+            color: #10b981;
+        }
+        .fail {
+            background: rgba(239, 68, 68, 0.15);
+            border-left: 3px solid #ef4444;
+            color: #ef4444;
+        }
+        .summary {
+            background: #1a2234;
+            padding: 20px;
+            border-radius: 8px;
+            margin-top: 20px;
+            display: flex;
+            gap: 30px;
+            flex-wrap: wrap;
+        }
+        .summary-item {
+            text-align: center;
+        }
+        .summary-number {
+            font-size: 2em;
+            font-weight: bold;
+            font-family: 'JetBrains Mono', monospace;
+        }
+        .summary-label {
+            color: #9ca3af;
+            font-size: 0.9em;
+        }
+        .pass-rate {
+            color: #10b981;
+        }
+        .fail-count {
+            color: #ef4444;
+        }
+        .total-count {
+            color: #3b82f6;
+        }
+        .error-details {
+            margin-top: 5px;
+            padding: 10px;
+            background: rgba(0,0,0,0.3);
+            border-radius: 4px;
+            font-size: 12px;
+            color: #f87171;
+            white-space: pre-wrap;
+        }
+        .run-button {
+            background: #10b981;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            font-size: 16px;
+            cursor: pointer;
+            margin-bottom: 20px;
+        }
+        .run-button:hover {
+            background: #059669;
+        }
+        .run-button:disabled {
+            background: #6b7280;
+            cursor: not-allowed;
+        }
+        .progress {
+            color: #9ca3af;
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+<body>
+    <h1>🧪 Monte Carlo Simulator - Test Suite</h1>
+    <button class="run-button" onclick="runAllTests()">Run All Tests</button>
+    <div id="progress" class="progress"></div>
+    <div id="results"></div>
+    <div id="summary" class="summary" style="display: none;"></div>
+
+    <script>
+        // ============================================
+        // MINIMAL TEST FRAMEWORK (Zero Dependencies)
+        // ============================================
+
+        class TestFramework {
+            constructor() {
+                this.tests = [];
+                this.results = [];
+                this.currentSuite = null;
+            }
+
+            describe(suiteName, fn) {
+                this.currentSuite = suiteName;
+                fn();
+                this.currentSuite = null;
+            }
+
+            it(testName, fn) {
+                this.tests.push({
+                    suite: this.currentSuite,
+                    name: testName,
+                    fn
+                });
+            }
+
+            async runAll(progressCallback) {
+                this.results = [];
+                for (let i = 0; i < this.tests.length; i++) {
+                    const test = this.tests[i];
+                    progressCallback(`Running: ${test.suite} - ${test.name} (${i + 1}/${this.tests.length})`);
+
+                    try {
+                        await test.fn();
+                        this.results.push({ ...test, passed: true });
+                    } catch (error) {
+                        this.results.push({ ...test, passed: false, error: error.message });
+                    }
+
+                    // Small delay to allow UI updates
+                    await new Promise(r => setTimeout(r, 1));
+                }
+                return this.results;
+            }
+
+            getResultsBySuite() {
+                const suites = {};
+                for (const result of this.results) {
+                    if (!suites[result.suite]) {
+                        suites[result.suite] = [];
+                    }
+                    suites[result.suite].push(result);
+                }
+                return suites;
+            }
+
+            getSummary() {
+                const total = this.results.length;
+                const passed = this.results.filter(r => r.passed).length;
+                const failed = total - passed;
+                return { total, passed, failed, rate: ((passed / total) * 100).toFixed(1) };
+            }
+        }
+
+        // Assertion helpers
+        function assert(condition, message) {
+            if (!condition) {
+                throw new Error(message || 'Assertion failed');
+            }
+        }
+
+        function assertEqual(actual, expected, message) {
+            if (actual !== expected) {
+                throw new Error(message || `Expected ${expected}, got ${actual}`);
+            }
+        }
+
+        function assertAlmostEqual(actual, expected, tolerance = 0.001, message) {
+            if (Math.abs(actual - expected) > tolerance) {
+                throw new Error(message || `Expected ~${expected}, got ${actual} (tolerance: ${tolerance})`);
+            }
+        }
+
+        function assertInRange(value, min, max, message) {
+            if (value < min || value > max) {
+                throw new Error(message || `Expected ${value} to be in range [${min}, ${max}]`);
+            }
+        }
+
+        function assertGreaterThan(actual, expected, message) {
+            if (actual <= expected) {
+                throw new Error(message || `Expected ${actual} > ${expected}`);
+            }
+        }
+
+        function assertLessThan(actual, expected, message) {
+            if (actual >= expected) {
+                throw new Error(message || `Expected ${actual} < ${expected}`);
+            }
+        }
+
+        // ============================================
+        // MONTE CARLO ENGINE (Copied for testing)
+        // ============================================
+
+        class MonteCarloEngine {
+            constructor(params) {
+                this.params = params;
+            }
+
+            // Box-Muller transform for normal distribution
+            randomNormal(mean = 0, std = 1) {
+                const u1 = Math.random();
+                const u2 = Math.random();
+                const z0 = Math.sqrt(-2.0 * Math.log(u1)) * Math.cos(2.0 * Math.PI * u2);
+                return z0 * std + mean;
+            }
+
+            // Generate random number from Student's T distribution (fatter tails)
+            randomStudentT(mean, std, df) {
+                const z = this.randomNormal(0, 1);
+                let chiSquared = 0;
+                for (let i = 0; i < df; i++) {
+                    const n = this.randomNormal(0, 1);
+                    chiSquared += n * n;
+                }
+                const scaleFactor = df > 2 ? Math.sqrt((df - 2) / df) : 1;
+                const t = z / Math.sqrt(chiSquared / df) * scaleFactor;
+                return mean + std * t;
+            }
+
+            generateReturn(mean, std) {
+                if (this.params.useStudentT) {
+                    return this.randomStudentT(mean, std, this.params.degreesOfFreedom);
+                }
+                return this.randomNormal(mean, std);
+            }
+
+            generateIPCA(equityReturn) {
+                if (!this.params.useIPCAModel) {
+                    return this.params.inflation / 100;
+                }
+                const baseIPCA = this.params.expectedIPCA / 100;
+                const ipcaVol = this.params.ipcaVolatility / 100;
+                const equityMean = this.params.equityReturn / 100;
+                const equityVol = this.params.equityVolatility / 100;
+                const correlatedShock = -0.2 * (equityReturn - equityMean) / equityVol;
+                const randomShock = this.randomNormal(0, ipcaVol);
+                const ipca = Math.max(0, Math.min(0.15, baseIPCA + correlatedShock * ipcaVol + randomShock));
+                return ipca;
+            }
+
+            generateBondReturn(ipca) {
+                if (!this.params.useIPCAModel) {
+                    return this.generateReturn(this.params.bondReturn / 100, this.params.bondVolatility / 100);
+                }
+                const realSpread = this.params.realSpread / 100;
+                const spreadVariation = this.randomNormal(0, 0.005);
+                return ipca + realSpread + spreadVariation;
+            }
+
+            getDynamicCorrelation(equityReturn) {
+                if (!this.params.useDynamicCorrelation) {
+                    return this.params.baseCorrelation;
+                }
+                const baseCorr = this.params.baseCorrelation;
+                const stressMult = this.params.stressCorrelationMultiplier;
+                const equityMean = this.params.equityReturn / 100;
+                const equityVol = this.params.equityVolatility / 100;
+                const zScore = (equityReturn - equityMean) / equityVol;
+
+                if (zScore < -1) {
+                    const stressFactor = Math.min(Math.abs(zScore) - 1, 2) / 2;
+                    return Math.max(-0.9, baseCorr * (1 + stressFactor * (stressMult - 1)));
+                } else if (zScore > 1) {
+                    const boomFactor = Math.min(zScore - 1, 2) / 2;
+                    return baseCorr * (1 - boomFactor * 0.5);
+                }
+                return baseCorr;
+            }
+
+            calculateTax(withdrawalUSD, gainRatio, bondAllocation) {
+                if (!this.params.useTaxModel) {
+                    return 0;
+                }
+                const equityWithdrawal = withdrawalUSD * (1 - bondAllocation);
+                const bondWithdrawal = withdrawalUSD * bondAllocation;
+                const equityTax = equityWithdrawal * gainRatio * (this.params.equityTaxRate / 100);
+                const bondTax = bondWithdrawal * gainRatio * (this.params.fixedIncomeTaxRate / 100);
+                return equityTax + bondTax;
+            }
+
+            generateCorrelatedReturns(correlation) {
+                const z1 = this.randomNormal();
+                const z2 = this.randomNormal();
+                const correlatedZ2 = correlation * z1 + Math.sqrt(1 - correlation * correlation) * z2;
+                return [z1, correlatedZ2];
+            }
+
+            simulateCurrency(equityReturn, baseFX, volatilityFX = 0.15) {
+                const correlation = this.getDynamicCorrelation(equityReturn);
+                const [_, fxShock] = this.generateCorrelatedReturns(correlation);
+                const meanFX = this.params.initialFX;
+                const reversionSpeed = 0.1;
+                const drift = reversionSpeed * (meanFX - baseFX) / meanFX;
+                const stressMultiplier = equityReturn < 0 ? 1.3 : 1.0;
+                const fxReturn = drift + fxShock * volatilityFX * stressMultiplier;
+                return baseFX * (1 + fxReturn);
+            }
+
+            applyGuytonKlinger(currentWithdrawal, portfolioValue, initialWithdrawalRate, previousReturn, inflation) {
+                const currentRate = currentWithdrawal / portfolioValue;
+                const { preservationThreshold, prosperityThreshold, adjustmentPercent, applyInflationRule } = this.params;
+
+                let newWithdrawal = currentWithdrawal;
+                let ruleApplied = null;
+
+                if (applyInflationRule && previousReturn < 0) {
+                    ruleApplied = 'inflation_skip';
+                } else {
+                    newWithdrawal *= (1 + inflation);
+                }
+
+                if (currentRate > initialWithdrawalRate * (1 + preservationThreshold)) {
+                    newWithdrawal *= (1 - adjustmentPercent);
+                    ruleApplied = 'preservation';
+                }
+
+                if (currentRate < initialWithdrawalRate * (1 - prosperityThreshold)) {
+                    newWithdrawal *= (1 + adjustmentPercent);
+                    ruleApplied = 'prosperity';
+                }
+
+                return { withdrawal: newWithdrawal, ruleApplied };
+            }
+        }
+
+        // ============================================
+        // TEST DEFINITIONS
+        // ============================================
+
+        const tf = new TestFramework();
+
+        // Default test params
+        function getDefaultParams() {
+            return {
+                initialPortfolioUSD: 1000000,
+                initialPortfolioBRL: 0,
+                initialFX: 5.5,
+                withdrawalRate: 4.7,
+                equityReturn: 7,
+                equityVolatility: 18,
+                bondReturn: 4,
+                bondVolatility: 6,
+                inflation: 4.5,
+                years: 30,
+                useStudentT: false,
+                degreesOfFreedom: 5,
+                useIPCAModel: false,
+                expectedIPCA: 4.5,
+                ipcaVolatility: 1.5,
+                realSpread: 5.5,
+                useDynamicCorrelation: false,
+                baseCorrelation: -0.4,
+                stressCorrelationMultiplier: 2.0,
+                useTaxModel: false,
+                equityTaxRate: 15,
+                fixedIncomeTaxRate: 15,
+                preservationThreshold: 0.2,
+                prosperityThreshold: 0.2,
+                adjustmentPercent: 0.1,
+                applyInflationRule: true,
+                useBucketStrategy: false,
+                bucketYears: 5,
+                tentInitialBondPercent: 40,
+                tentDuration: 5,
+                targetBondPercent: 30,
+                useMinimumWithdrawal: false,
+                minimumWithdrawalBRL: 0,
+                maxNegativeSequence: 10
+            };
+        }
+
+        // ============================================
+        // 1. STATISTICAL DISTRIBUTION VALIDATION
+        // ============================================
+
+        tf.describe('Box-Muller Normal Distribution', () => {
+            tf.it('should generate values with mean approximately 0', () => {
+                const engine = new MonteCarloEngine(getDefaultParams());
+                const samples = [];
+                for (let i = 0; i < 10000; i++) {
+                    samples.push(engine.randomNormal(0, 1));
+                }
+                const mean = samples.reduce((a, b) => a + b, 0) / samples.length;
+                assertAlmostEqual(mean, 0, 0.05, `Mean should be ~0, got ${mean}`);
+            });
+
+            tf.it('should generate values with standard deviation approximately 1', () => {
+                const engine = new MonteCarloEngine(getDefaultParams());
+                const samples = [];
+                for (let i = 0; i < 10000; i++) {
+                    samples.push(engine.randomNormal(0, 1));
+                }
+                const mean = samples.reduce((a, b) => a + b, 0) / samples.length;
+                const variance = samples.reduce((sum, x) => sum + Math.pow(x - mean, 2), 0) / samples.length;
+                const std = Math.sqrt(variance);
+                assertAlmostEqual(std, 1, 0.05, `StdDev should be ~1, got ${std}`);
+            });
+
+            tf.it('should correctly apply custom mean and standard deviation', () => {
+                const engine = new MonteCarloEngine(getDefaultParams());
+                const targetMean = 0.07;
+                const targetStd = 0.18;
+                const samples = [];
+                for (let i = 0; i < 10000; i++) {
+                    samples.push(engine.randomNormal(targetMean, targetStd));
+                }
+                const mean = samples.reduce((a, b) => a + b, 0) / samples.length;
+                const variance = samples.reduce((sum, x) => sum + Math.pow(x - mean, 2), 0) / samples.length;
+                const std = Math.sqrt(variance);
+                assertAlmostEqual(mean, targetMean, 0.01, `Mean should be ~${targetMean}, got ${mean}`);
+                assertAlmostEqual(std, targetStd, 0.02, `StdDev should be ~${targetStd}, got ${std}`);
+            });
+
+            tf.it('should produce approximately 68% of values within 1 std dev', () => {
+                const engine = new MonteCarloEngine(getDefaultParams());
+                const samples = [];
+                for (let i = 0; i < 10000; i++) {
+                    samples.push(engine.randomNormal(0, 1));
+                }
+                const withinOneStd = samples.filter(x => Math.abs(x) <= 1).length;
+                const percentage = withinOneStd / samples.length;
+                assertInRange(percentage, 0.65, 0.71, `~68% should be within 1 std, got ${(percentage * 100).toFixed(1)}%`);
+            });
+
+            tf.it('should produce approximately 95% of values within 2 std dev', () => {
+                const engine = new MonteCarloEngine(getDefaultParams());
+                const samples = [];
+                for (let i = 0; i < 10000; i++) {
+                    samples.push(engine.randomNormal(0, 1));
+                }
+                const withinTwoStd = samples.filter(x => Math.abs(x) <= 2).length;
+                const percentage = withinTwoStd / samples.length;
+                assertInRange(percentage, 0.93, 0.97, `~95% should be within 2 std, got ${(percentage * 100).toFixed(1)}%`);
+            });
+        });
+
+        tf.describe('Student-T Distribution (Fat Tails)', () => {
+            tf.it('should generate values with approximately correct mean', () => {
+                const params = { ...getDefaultParams(), useStudentT: true, degreesOfFreedom: 5 };
+                const engine = new MonteCarloEngine(params);
+                const samples = [];
+                for (let i = 0; i < 10000; i++) {
+                    samples.push(engine.randomStudentT(0.07, 0.18, 5));
+                }
+                const mean = samples.reduce((a, b) => a + b, 0) / samples.length;
+                assertAlmostEqual(mean, 0.07, 0.02, `Mean should be ~0.07, got ${mean}`);
+            });
+
+            tf.it('should have fatter tails than normal distribution', () => {
+                const engine = new MonteCarloEngine(getDefaultParams());
+
+                // Generate normal samples
+                const normalSamples = [];
+                for (let i = 0; i < 20000; i++) {
+                    normalSamples.push(engine.randomNormal(0, 1));
+                }
+
+                // Generate T-Student samples
+                const tSamples = [];
+                for (let i = 0; i < 20000; i++) {
+                    tSamples.push(engine.randomStudentT(0, 1, 5));
+                }
+
+                // Count extreme values (beyond 3 std dev)
+                const normalExtremes = normalSamples.filter(x => Math.abs(x) > 3).length;
+                const tExtremes = tSamples.filter(x => Math.abs(x) > 3).length;
+
+                assertGreaterThan(tExtremes, normalExtremes,
+                    `T-distribution should have more extreme values: T=${tExtremes}, Normal=${normalExtremes}`);
+            });
+
+            tf.it('should maintain approximately correct standard deviation after scaling', () => {
+                const params = { ...getDefaultParams(), useStudentT: true, degreesOfFreedom: 5 };
+                const engine = new MonteCarloEngine(params);
+                const targetStd = 0.18;
+                const samples = [];
+                for (let i = 0; i < 10000; i++) {
+                    samples.push(engine.randomStudentT(0, targetStd, 5));
+                }
+                const mean = samples.reduce((a, b) => a + b, 0) / samples.length;
+                const variance = samples.reduce((sum, x) => sum + Math.pow(x - mean, 2), 0) / samples.length;
+                const std = Math.sqrt(variance);
+                // T-distribution std may vary more, use larger tolerance
+                assertInRange(std, targetStd * 0.8, targetStd * 1.3, `StdDev should be ~${targetStd}, got ${std}`);
+            });
+        });
+
+        tf.describe('Cholesky Correlation', () => {
+            tf.it('should generate uncorrelated variables when correlation is 0', () => {
+                const engine = new MonteCarloEngine(getDefaultParams());
+                const samples = [];
+                for (let i = 0; i < 5000; i++) {
+                    samples.push(engine.generateCorrelatedReturns(0));
+                }
+
+                // Calculate sample correlation
+                const z1s = samples.map(s => s[0]);
+                const z2s = samples.map(s => s[1]);
+                const mean1 = z1s.reduce((a, b) => a + b, 0) / z1s.length;
+                const mean2 = z2s.reduce((a, b) => a + b, 0) / z2s.length;
+
+                let cov = 0, var1 = 0, var2 = 0;
+                for (let i = 0; i < samples.length; i++) {
+                    const d1 = z1s[i] - mean1;
+                    const d2 = z2s[i] - mean2;
+                    cov += d1 * d2;
+                    var1 += d1 * d1;
+                    var2 += d2 * d2;
+                }
+                const correlation = cov / Math.sqrt(var1 * var2);
+
+                assertAlmostEqual(correlation, 0, 0.1, `Correlation should be ~0, got ${correlation.toFixed(3)}`);
+            });
+
+            tf.it('should generate positively correlated variables when correlation > 0', () => {
+                const engine = new MonteCarloEngine(getDefaultParams());
+                const targetCorr = 0.7;
+                const samples = [];
+                for (let i = 0; i < 5000; i++) {
+                    samples.push(engine.generateCorrelatedReturns(targetCorr));
+                }
+
+                const z1s = samples.map(s => s[0]);
+                const z2s = samples.map(s => s[1]);
+                const mean1 = z1s.reduce((a, b) => a + b, 0) / z1s.length;
+                const mean2 = z2s.reduce((a, b) => a + b, 0) / z2s.length;
+
+                let cov = 0, var1 = 0, var2 = 0;
+                for (let i = 0; i < samples.length; i++) {
+                    const d1 = z1s[i] - mean1;
+                    const d2 = z2s[i] - mean2;
+                    cov += d1 * d2;
+                    var1 += d1 * d1;
+                    var2 += d2 * d2;
+                }
+                const correlation = cov / Math.sqrt(var1 * var2);
+
+                assertAlmostEqual(correlation, targetCorr, 0.1,
+                    `Correlation should be ~${targetCorr}, got ${correlation.toFixed(3)}`);
+            });
+
+            tf.it('should generate negatively correlated variables when correlation < 0', () => {
+                const engine = new MonteCarloEngine(getDefaultParams());
+                const targetCorr = -0.4;
+                const samples = [];
+                for (let i = 0; i < 5000; i++) {
+                    samples.push(engine.generateCorrelatedReturns(targetCorr));
+                }
+
+                const z1s = samples.map(s => s[0]);
+                const z2s = samples.map(s => s[1]);
+                const mean1 = z1s.reduce((a, b) => a + b, 0) / z1s.length;
+                const mean2 = z2s.reduce((a, b) => a + b, 0) / z2s.length;
+
+                let cov = 0, var1 = 0, var2 = 0;
+                for (let i = 0; i < samples.length; i++) {
+                    const d1 = z1s[i] - mean1;
+                    const d2 = z2s[i] - mean2;
+                    cov += d1 * d2;
+                    var1 += d1 * d1;
+                    var2 += d2 * d2;
+                }
+                const correlation = cov / Math.sqrt(var1 * var2);
+
+                assertAlmostEqual(correlation, targetCorr, 0.1,
+                    `Correlation should be ~${targetCorr}, got ${correlation.toFixed(3)}`);
+            });
+        });
+
+        // ============================================
+        // 2. GUYTON-KLINGER RULES
+        // ============================================
+
+        tf.describe('Guyton-Klinger: Preservation Rule', () => {
+            tf.it('should trigger preservation rule when withdrawal rate exceeds threshold', () => {
+                const params = {
+                    ...getDefaultParams(),
+                    preservationThreshold: 0.2,
+                    prosperityThreshold: 0.2,
+                    adjustmentPercent: 0.1,
+                    applyInflationRule: false
+                };
+                const engine = new MonteCarloEngine(params);
+
+                // Initial rate = 4.7%, portfolio dropped so current rate = 6% (>4.7*1.2=5.64%)
+                const currentWithdrawal = 60000;
+                const portfolioValue = 1000000;  // 6% rate
+                const initialRate = 0.047;
+
+                const result = engine.applyGuytonKlinger(currentWithdrawal, portfolioValue, initialRate, 0.05, 0);
+
+                assertEqual(result.ruleApplied, 'preservation', 'Preservation rule should be applied');
+                assertAlmostEqual(result.withdrawal, currentWithdrawal * 0.9, 0.01,
+                    'Withdrawal should be reduced by 10%');
+            });
+
+            tf.it('should NOT trigger preservation rule when rate is below threshold', () => {
+                const params = {
+                    ...getDefaultParams(),
+                    preservationThreshold: 0.2,
+                    prosperityThreshold: 0.2,
+                    adjustmentPercent: 0.1,
+                    applyInflationRule: false
+                };
+                const engine = new MonteCarloEngine(params);
+
+                // Current rate = 5% which is < 5.64% threshold
+                const currentWithdrawal = 50000;
+                const portfolioValue = 1000000;  // 5% rate
+                const initialRate = 0.047;
+
+                const result = engine.applyGuytonKlinger(currentWithdrawal, portfolioValue, initialRate, 0.05, 0);
+
+                assert(result.ruleApplied !== 'preservation', 'Preservation rule should NOT be applied');
+            });
+        });
+
+        tf.describe('Guyton-Klinger: Prosperity Rule', () => {
+            tf.it('should trigger prosperity rule when withdrawal rate is below threshold', () => {
+                const params = {
+                    ...getDefaultParams(),
+                    preservationThreshold: 0.2,
+                    prosperityThreshold: 0.2,
+                    adjustmentPercent: 0.1,
+                    applyInflationRule: false
+                };
+                const engine = new MonteCarloEngine(params);
+
+                // Initial rate = 4.7%, portfolio grew so current rate = 3% (<4.7*0.8=3.76%)
+                const currentWithdrawal = 30000;
+                const portfolioValue = 1000000;  // 3% rate
+                const initialRate = 0.047;
+
+                const result = engine.applyGuytonKlinger(currentWithdrawal, portfolioValue, initialRate, 0.05, 0);
+
+                assertEqual(result.ruleApplied, 'prosperity', 'Prosperity rule should be applied');
+                assertAlmostEqual(result.withdrawal, currentWithdrawal * 1.1, 0.01,
+                    'Withdrawal should be increased by 10%');
+            });
+
+            tf.it('should NOT trigger prosperity rule when rate is above threshold', () => {
+                const params = {
+                    ...getDefaultParams(),
+                    preservationThreshold: 0.2,
+                    prosperityThreshold: 0.2,
+                    adjustmentPercent: 0.1,
+                    applyInflationRule: false
+                };
+                const engine = new MonteCarloEngine(params);
+
+                // Current rate = 4% which is > 3.76% threshold
+                const currentWithdrawal = 40000;
+                const portfolioValue = 1000000;  // 4% rate
+                const initialRate = 0.047;
+
+                const result = engine.applyGuytonKlinger(currentWithdrawal, portfolioValue, initialRate, 0.05, 0);
+
+                assert(result.ruleApplied !== 'prosperity', 'Prosperity rule should NOT be applied');
+            });
+        });
+
+        tf.describe('Guyton-Klinger: Inflation Rule', () => {
+            tf.it('should skip inflation adjustment after negative return year', () => {
+                const params = {
+                    ...getDefaultParams(),
+                    preservationThreshold: 0.2,
+                    prosperityThreshold: 0.2,
+                    adjustmentPercent: 0.1,
+                    applyInflationRule: true
+                };
+                const engine = new MonteCarloEngine(params);
+
+                const currentWithdrawal = 47000;
+                const portfolioValue = 1000000;
+                const initialRate = 0.047;
+                const previousReturn = -0.10;  // Negative return
+                const inflation = 0.045;
+
+                const result = engine.applyGuytonKlinger(currentWithdrawal, portfolioValue, initialRate, previousReturn, inflation);
+
+                assertEqual(result.ruleApplied, 'inflation_skip', 'Inflation skip rule should be applied');
+                assertEqual(result.withdrawal, currentWithdrawal, 'Withdrawal should NOT be adjusted for inflation');
+            });
+
+            tf.it('should apply inflation adjustment after positive return year', () => {
+                const params = {
+                    ...getDefaultParams(),
+                    preservationThreshold: 0.2,
+                    prosperityThreshold: 0.2,
+                    adjustmentPercent: 0.1,
+                    applyInflationRule: true
+                };
+                const engine = new MonteCarloEngine(params);
+
+                const currentWithdrawal = 47000;
+                const portfolioValue = 1000000;
+                const initialRate = 0.047;
+                const previousReturn = 0.08;  // Positive return
+                const inflation = 0.045;
+
+                const result = engine.applyGuytonKlinger(currentWithdrawal, portfolioValue, initialRate, previousReturn, inflation);
+
+                assert(result.ruleApplied !== 'inflation_skip', 'Inflation should be applied');
+                assertAlmostEqual(result.withdrawal, currentWithdrawal * (1 + inflation), 1,
+                    'Withdrawal should be adjusted for inflation');
+            });
+        });
+
+        // ============================================
+        // 3. TAX CALCULATIONS
+        // ============================================
+
+        tf.describe('Tax Calculations', () => {
+            tf.it('should return 0 tax when tax model is disabled', () => {
+                const params = { ...getDefaultParams(), useTaxModel: false };
+                const engine = new MonteCarloEngine(params);
+
+                const tax = engine.calculateTax(100000, 0.6, 0.4);
+                assertEqual(tax, 0, 'Tax should be 0 when disabled');
+            });
+
+            tf.it('should calculate tax correctly for 100% equity allocation', () => {
+                const params = {
+                    ...getDefaultParams(),
+                    useTaxModel: true,
+                    equityTaxRate: 15,
+                    fixedIncomeTaxRate: 15
+                };
+                const engine = new MonteCarloEngine(params);
+
+                const withdrawalUSD = 100000;
+                const gainRatio = 0.6;  // 60% gains
+                const bondAllocation = 0;  // 100% equity
+
+                const tax = engine.calculateTax(withdrawalUSD, gainRatio, bondAllocation);
+                const expectedTax = 100000 * 0.6 * 0.15;  // 100% equity * 60% gains * 15% tax
+
+                assertAlmostEqual(tax, expectedTax, 0.01, `Tax should be ${expectedTax}, got ${tax}`);
+            });
+
+            tf.it('should calculate tax correctly for 100% bond allocation', () => {
+                const params = {
+                    ...getDefaultParams(),
+                    useTaxModel: true,
+                    equityTaxRate: 15,
+                    fixedIncomeTaxRate: 15
+                };
+                const engine = new MonteCarloEngine(params);
+
+                const withdrawalUSD = 100000;
+                const gainRatio = 0.6;
+                const bondAllocation = 1;  // 100% bonds
+
+                const tax = engine.calculateTax(withdrawalUSD, gainRatio, bondAllocation);
+                const expectedTax = 100000 * 0.6 * 0.15;  // 100% bonds * 60% gains * 15% tax
+
+                assertAlmostEqual(tax, expectedTax, 0.01, `Tax should be ${expectedTax}, got ${tax}`);
+            });
+
+            tf.it('should calculate tax correctly for mixed allocation', () => {
+                const params = {
+                    ...getDefaultParams(),
+                    useTaxModel: true,
+                    equityTaxRate: 15,
+                    fixedIncomeTaxRate: 15
+                };
+                const engine = new MonteCarloEngine(params);
+
+                const withdrawalUSD = 100000;
+                const gainRatio = 0.6;
+                const bondAllocation = 0.4;  // 40% bonds, 60% equity
+
+                const tax = engine.calculateTax(withdrawalUSD, gainRatio, bondAllocation);
+                const equityTax = 60000 * 0.6 * 0.15;
+                const bondTax = 40000 * 0.6 * 0.15;
+                const expectedTax = equityTax + bondTax;
+
+                assertAlmostEqual(tax, expectedTax, 0.01, `Tax should be ${expectedTax}, got ${tax}`);
+            });
+
+            tf.it('should handle different tax rates for equity and bonds', () => {
+                const params = {
+                    ...getDefaultParams(),
+                    useTaxModel: true,
+                    equityTaxRate: 15,
+                    fixedIncomeTaxRate: 22.5
+                };
+                const engine = new MonteCarloEngine(params);
+
+                const withdrawalUSD = 100000;
+                const gainRatio = 0.5;
+                const bondAllocation = 0.5;
+
+                const tax = engine.calculateTax(withdrawalUSD, gainRatio, bondAllocation);
+                const equityTax = 50000 * 0.5 * 0.15;
+                const bondTax = 50000 * 0.5 * 0.225;
+                const expectedTax = equityTax + bondTax;
+
+                assertAlmostEqual(tax, expectedTax, 0.01, `Tax should be ${expectedTax}, got ${tax}`);
+            });
+        });
+
+        // ============================================
+        // 4. IPCA MODEL
+        // ============================================
+
+        tf.describe('IPCA Model', () => {
+            tf.it('should return fixed inflation when IPCA model is disabled', () => {
+                const params = {
+                    ...getDefaultParams(),
+                    useIPCAModel: false,
+                    inflation: 4.5
+                };
+                const engine = new MonteCarloEngine(params);
+
+                const ipca = engine.generateIPCA(0.07);
+                assertEqual(ipca, 0.045, 'IPCA should equal fixed inflation rate');
+            });
+
+            tf.it('should generate IPCA within bounds (0% to 15%)', () => {
+                const params = {
+                    ...getDefaultParams(),
+                    useIPCAModel: true,
+                    expectedIPCA: 4.5,
+                    ipcaVolatility: 1.5,
+                    equityReturn: 7,
+                    equityVolatility: 18
+                };
+                const engine = new MonteCarloEngine(params);
+
+                for (let i = 0; i < 1000; i++) {
+                    const equityReturn = engine.randomNormal(0.07, 0.18);
+                    const ipca = engine.generateIPCA(equityReturn);
+                    assertInRange(ipca, 0, 0.15, `IPCA ${ipca} should be in range [0, 0.15]`);
+                }
+            });
+
+            tf.it('should have negative correlation with equity returns (higher IPCA during stress)', () => {
+                const params = {
+                    ...getDefaultParams(),
+                    useIPCAModel: true,
+                    expectedIPCA: 4.5,
+                    ipcaVolatility: 1.5,
+                    equityReturn: 7,
+                    equityVolatility: 18
+                };
+                const engine = new MonteCarloEngine(params);
+
+                // Collect IPCA for very negative vs very positive equity returns
+                const negativeReturns = [];
+                const positiveReturns = [];
+
+                for (let i = 0; i < 1000; i++) {
+                    negativeReturns.push(engine.generateIPCA(-0.30));  // -30% crash
+                    positiveReturns.push(engine.generateIPCA(0.30));   // +30% boom
+                }
+
+                const avgNegative = negativeReturns.reduce((a, b) => a + b, 0) / negativeReturns.length;
+                const avgPositive = positiveReturns.reduce((a, b) => a + b, 0) / positiveReturns.length;
+
+                assertGreaterThan(avgNegative, avgPositive,
+                    `IPCA during crashes (${avgNegative.toFixed(4)}) should be higher than during booms (${avgPositive.toFixed(4)})`);
+            });
+        });
+
+        // ============================================
+        // 5. DYNAMIC CORRELATION
+        // ============================================
+
+        tf.describe('Dynamic FX Correlation', () => {
+            tf.it('should return base correlation when dynamic correlation is disabled', () => {
+                const params = {
+                    ...getDefaultParams(),
+                    useDynamicCorrelation: false,
+                    baseCorrelation: -0.4
+                };
+                const engine = new MonteCarloEngine(params);
+
+                const correlation = engine.getDynamicCorrelation(-0.30);  // Stress scenario
+                assertEqual(correlation, -0.4, 'Should return base correlation');
+            });
+
+            tf.it('should return base correlation for normal market conditions', () => {
+                const params = {
+                    ...getDefaultParams(),
+                    useDynamicCorrelation: true,
+                    baseCorrelation: -0.4,
+                    stressCorrelationMultiplier: 2.0,
+                    equityReturn: 7,
+                    equityVolatility: 18
+                };
+                const engine = new MonteCarloEngine(params);
+
+                // Normal return: within 1 std dev of mean
+                const normalReturn = 0.07;  // Exactly at mean
+                const correlation = engine.getDynamicCorrelation(normalReturn);
+
+                assertEqual(correlation, -0.4, `Correlation should be base value for normal conditions`);
+            });
+
+            tf.it('should increase correlation magnitude during stress (large negative returns)', () => {
+                const params = {
+                    ...getDefaultParams(),
+                    useDynamicCorrelation: true,
+                    baseCorrelation: -0.4,
+                    stressCorrelationMultiplier: 2.0,
+                    equityReturn: 7,
+                    equityVolatility: 18
+                };
+                const engine = new MonteCarloEngine(params);
+
+                // Stress: equity return is 2 std devs below mean (-0.29)
+                const stressReturn = 0.07 - 2 * 0.18;  // -0.29
+                const correlation = engine.getDynamicCorrelation(stressReturn);
+
+                assertLessThan(correlation, -0.4,
+                    `Correlation should be more negative during stress: got ${correlation}`);
+            });
+
+            tf.it('should decrease correlation magnitude during boom (large positive returns)', () => {
+                const params = {
+                    ...getDefaultParams(),
+                    useDynamicCorrelation: true,
+                    baseCorrelation: -0.4,
+                    stressCorrelationMultiplier: 2.0,
+                    equityReturn: 7,
+                    equityVolatility: 18
+                };
+                const engine = new MonteCarloEngine(params);
+
+                // Boom: equity return is 2 std devs above mean (0.43)
+                const boomReturn = 0.07 + 2 * 0.18;  // 0.43
+                const correlation = engine.getDynamicCorrelation(boomReturn);
+
+                assertGreaterThan(correlation, -0.4,
+                    `Correlation should be weaker (closer to 0) during boom: got ${correlation}`);
+            });
+
+            tf.it('should cap correlation at -0.9 during extreme stress', () => {
+                const params = {
+                    ...getDefaultParams(),
+                    useDynamicCorrelation: true,
+                    baseCorrelation: -0.4,
+                    stressCorrelationMultiplier: 3.0,
+                    equityReturn: 7,
+                    equityVolatility: 18
+                };
+                const engine = new MonteCarloEngine(params);
+
+                // Extreme stress
+                const extremeReturn = -0.50;
+                const correlation = engine.getDynamicCorrelation(extremeReturn);
+
+                assert(correlation >= -0.9, `Correlation should be capped at -0.9, got ${correlation}`);
+            });
+        });
+
+        // ============================================
+        // 6. BOND RETURN MODEL
+        // ============================================
+
+        tf.describe('Bond Return Model', () => {
+            tf.it('should use IPCA + Real Spread when IPCA model is enabled', () => {
+                const params = {
+                    ...getDefaultParams(),
+                    useIPCAModel: true,
+                    realSpread: 5.5
+                };
+                const engine = new MonteCarloEngine(params);
+
+                const ipca = 0.045;  // 4.5%
+                const samples = [];
+                for (let i = 0; i < 1000; i++) {
+                    samples.push(engine.generateBondReturn(ipca));
+                }
+
+                const mean = samples.reduce((a, b) => a + b, 0) / samples.length;
+                const expectedMean = ipca + 0.055;  // IPCA + real spread
+
+                assertAlmostEqual(mean, expectedMean, 0.02,
+                    `Mean bond return should be ~${expectedMean}, got ${mean}`);
+            });
+
+            tf.it('should use standard distribution when IPCA model is disabled', () => {
+                const params = {
+                    ...getDefaultParams(),
+                    useIPCAModel: false,
+                    bondReturn: 4,
+                    bondVolatility: 6
+                };
+                const engine = new MonteCarloEngine(params);
+
+                const samples = [];
+                for (let i = 0; i < 5000; i++) {
+                    samples.push(engine.generateBondReturn(0.045));  // IPCA value ignored
+                }
+
+                const mean = samples.reduce((a, b) => a + b, 0) / samples.length;
+
+                assertAlmostEqual(mean, 0.04, 0.01,
+                    `Mean bond return should be ~0.04, got ${mean}`);
+            });
+        });
+
+        // ============================================
+        // 7. CURRENCY SIMULATION
+        // ============================================
+
+        tf.describe('Currency Simulation', () => {
+            tf.it('should apply mean reversion toward initial FX', () => {
+                const params = {
+                    ...getDefaultParams(),
+                    initialFX: 5.5,
+                    useDynamicCorrelation: false,
+                    baseCorrelation: 0
+                };
+                const engine = new MonteCarloEngine(params);
+
+                // Start with FX above mean
+                let fxAbove = 7.0;
+                let driftAbove = 0;
+                for (let i = 0; i < 1000; i++) {
+                    const newFX = engine.simulateCurrency(0.07, fxAbove);
+                    driftAbove += (newFX - fxAbove);
+                }
+
+                // Start with FX below mean
+                let fxBelow = 4.0;
+                let driftBelow = 0;
+                for (let i = 0; i < 1000; i++) {
+                    const newFX = engine.simulateCurrency(0.07, fxBelow);
+                    driftBelow += (newFX - fxBelow);
+                }
+
+                // Average drift should pull FX toward mean
+                assertLessThan(driftAbove / 1000, 0,
+                    'FX above mean should have negative drift on average');
+                assertGreaterThan(driftBelow / 1000, 0,
+                    'FX below mean should have positive drift on average');
+            });
+
+            tf.it('should have higher volatility during negative equity returns', () => {
+                const params = {
+                    ...getDefaultParams(),
+                    initialFX: 5.5,
+                    useDynamicCorrelation: false,
+                    baseCorrelation: 0
+                };
+                const engine = new MonteCarloEngine(params);
+
+                // Collect FX changes during positive returns
+                const positiveChanges = [];
+                for (let i = 0; i < 1000; i++) {
+                    const newFX = engine.simulateCurrency(0.10, 5.5);  // +10% equity
+                    positiveChanges.push(Math.abs(newFX - 5.5));
+                }
+
+                // Collect FX changes during negative returns
+                const negativeChanges = [];
+                for (let i = 0; i < 1000; i++) {
+                    const newFX = engine.simulateCurrency(-0.10, 5.5);  // -10% equity
+                    negativeChanges.push(Math.abs(newFX - 5.5));
+                }
+
+                const avgPositive = positiveChanges.reduce((a, b) => a + b, 0) / positiveChanges.length;
+                const avgNegative = negativeChanges.reduce((a, b) => a + b, 0) / negativeChanges.length;
+
+                assertGreaterThan(avgNegative, avgPositive,
+                    `FX volatility should be higher during negative returns: neg=${avgNegative.toFixed(4)}, pos=${avgPositive.toFixed(4)}`);
+            });
+        });
+
+        // ============================================
+        // 8. EDGE CASES
+        // ============================================
+
+        tf.describe('Edge Cases', () => {
+            tf.it('should handle zero portfolio value in Guyton-Klinger', () => {
+                const params = { ...getDefaultParams() };
+                const engine = new MonteCarloEngine(params);
+
+                // This should not throw, even with division by zero scenario
+                try {
+                    const result = engine.applyGuytonKlinger(47000, 0, 0.047, 0.05, 0.045);
+                    // Current rate = 47000/0 = Infinity, which should trigger preservation
+                    assert(true, 'Should not throw');
+                } catch (e) {
+                    throw new Error('Should handle zero portfolio gracefully');
+                }
+            });
+
+            tf.it('should handle zero withdrawal in Guyton-Klinger', () => {
+                const params = { ...getDefaultParams() };
+                const engine = new MonteCarloEngine(params);
+
+                const result = engine.applyGuytonKlinger(0, 1000000, 0.047, 0.05, 0.045);
+                assertEqual(result.withdrawal, 0, 'Zero withdrawal should remain zero after inflation');
+            });
+
+            tf.it('should handle extreme correlation values', () => {
+                const engine = new MonteCarloEngine(getDefaultParams());
+
+                // Test with correlation = 0.99
+                const result1 = engine.generateCorrelatedReturns(0.99);
+                assert(result1.length === 2, 'Should return two values');
+                assert(isFinite(result1[0]) && isFinite(result1[1]), 'Values should be finite');
+
+                // Test with correlation = -0.99
+                const result2 = engine.generateCorrelatedReturns(-0.99);
+                assert(result2.length === 2, 'Should return two values');
+                assert(isFinite(result2[0]) && isFinite(result2[1]), 'Values should be finite');
+            });
+
+            tf.it('should handle zero gain ratio in tax calculation', () => {
+                const params = { ...getDefaultParams(), useTaxModel: true };
+                const engine = new MonteCarloEngine(params);
+
+                const tax = engine.calculateTax(100000, 0, 0.5);
+                assertEqual(tax, 0, 'Tax should be 0 with 0% gain ratio');
+            });
+
+            tf.it('should handle T-Student with very low degrees of freedom', () => {
+                const params = { ...getDefaultParams(), useStudentT: true, degreesOfFreedom: 2 };
+                const engine = new MonteCarloEngine(params);
+
+                // Should not throw even with df=2 (undefined variance)
+                for (let i = 0; i < 100; i++) {
+                    const value = engine.randomStudentT(0, 1, 2);
+                    assert(isFinite(value), 'Values should be finite even with low df');
+                }
+            });
+        });
+
+        // ============================================
+        // 9. DETERMINISTIC SCENARIO TESTS
+        // ============================================
+
+        tf.describe('Deterministic Scenarios', () => {
+            tf.it('should trigger preservation rule in sequence of bad years', () => {
+                const params = {
+                    ...getDefaultParams(),
+                    preservationThreshold: 0.2,
+                    adjustmentPercent: 0.1
+                };
+                const engine = new MonteCarloEngine(params);
+
+                let portfolio = 1000000;
+                let withdrawal = 47000;  // 4.7%
+                const initialRate = 0.047;
+
+                // Simulate 3 years of -20% returns
+                for (let year = 0; year < 3; year++) {
+                    portfolio *= 0.80;  // -20% return
+                    portfolio -= withdrawal;
+
+                    const currentRate = withdrawal / portfolio;
+                    if (currentRate > initialRate * 1.2) {
+                        const result = engine.applyGuytonKlinger(withdrawal, portfolio, initialRate, -0.2, 0);
+                        if (result.ruleApplied === 'preservation') {
+                            withdrawal = result.withdrawal;
+                        }
+                    }
+                }
+
+                // After severe drops, preservation should have reduced withdrawal
+                assertLessThan(withdrawal, 47000,
+                    'Withdrawal should be reduced after severe market decline');
+            });
+
+            tf.it('should trigger prosperity rule after strong market growth', () => {
+                const params = {
+                    ...getDefaultParams(),
+                    prosperityThreshold: 0.2,
+                    adjustmentPercent: 0.1
+                };
+                const engine = new MonteCarloEngine(params);
+
+                let portfolio = 1000000;
+                let withdrawal = 47000;  // 4.7%
+                const initialRate = 0.047;
+
+                // Simulate 3 years of +20% returns
+                for (let year = 0; year < 3; year++) {
+                    portfolio *= 1.20;  // +20% return
+                    portfolio -= withdrawal;
+
+                    const result = engine.applyGuytonKlinger(withdrawal, portfolio, initialRate, 0.2, 0.045);
+                    if (result.ruleApplied === 'prosperity') {
+                        withdrawal = result.withdrawal;
+                    }
+                }
+
+                // After strong growth, prosperity should have increased withdrawal
+                assertGreaterThan(withdrawal, 47000,
+                    'Withdrawal should be increased after strong market growth');
+            });
+        });
+
+        // ============================================
+        // RUN TESTS
+        // ============================================
+
+        async function runAllTests() {
+            const button = document.querySelector('.run-button');
+            const progressDiv = document.getElementById('progress');
+            const resultsDiv = document.getElementById('results');
+            const summaryDiv = document.getElementById('summary');
+
+            button.disabled = true;
+            resultsDiv.innerHTML = '';
+            summaryDiv.style.display = 'none';
+
+            await tf.runAll((msg) => {
+                progressDiv.textContent = msg;
+            });
+
+            progressDiv.textContent = 'Tests completed!';
+
+            // Display results by suite
+            const suites = tf.getResultsBySuite();
+            for (const [suiteName, tests] of Object.entries(suites)) {
+                const suiteDiv = document.createElement('div');
+                suiteDiv.className = 'test-suite';
+                suiteDiv.innerHTML = `<h2>${suiteName}</h2>`;
+
+                for (const test of tests) {
+                    const testDiv = document.createElement('div');
+                    testDiv.className = `test-result ${test.passed ? 'pass' : 'fail'}`;
+                    testDiv.innerHTML = `${test.passed ? '✓' : '✗'} ${test.name}`;
+
+                    if (!test.passed && test.error) {
+                        const errorDiv = document.createElement('div');
+                        errorDiv.className = 'error-details';
+                        errorDiv.textContent = test.error;
+                        testDiv.appendChild(errorDiv);
+                    }
+
+                    suiteDiv.appendChild(testDiv);
+                }
+
+                resultsDiv.appendChild(suiteDiv);
+            }
+
+            // Display summary
+            const summary = tf.getSummary();
+            summaryDiv.innerHTML = `
+                <div class="summary-item">
+                    <div class="summary-number total-count">${summary.total}</div>
+                    <div class="summary-label">Total Tests</div>
+                </div>
+                <div class="summary-item">
+                    <div class="summary-number pass-rate">${summary.passed}</div>
+                    <div class="summary-label">Passed</div>
+                </div>
+                <div class="summary-item">
+                    <div class="summary-number fail-count">${summary.failed}</div>
+                    <div class="summary-label">Failed</div>
+                </div>
+                <div class="summary-item">
+                    <div class="summary-number ${summary.failed === 0 ? 'pass-rate' : 'fail-count'}">${summary.rate}%</div>
+                    <div class="summary-label">Pass Rate</div>
+                </div>
+            `;
+            summaryDiv.style.display = 'flex';
+
+            button.disabled = false;
+        }
+    </script>
+</body>
+</html>

@@ -1037,16 +1037,62 @@
             return <span ref={ref} className="inline-flex items-center justify-center" />;
         };
 
+        // Tooltip component with expandable info - opens as modal overlay
+        const Tooltip = ({ text }) => {
+            const [isOpen, setIsOpen] = useState(false);
+
+            if (!text) return null;
+
+            const handleClick = (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setIsOpen(true);
+            };
+
+            const handleClose = (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setIsOpen(false);
+            };
+
+            return (
+                <span className="relative ml-1 inline-flex items-center">
+                    <span
+                        className="cursor-pointer text-gray-500 hover:text-accent transition-colors inline-flex"
+                        onClick={handleClick}
+                    >
+                        <Icon name="HelpCircle" size={12} />
+                    </span>
+                    {isOpen && ReactDOM.createPortal(
+                        <div className="fixed inset-0 z-[9999] flex items-center justify-center">
+                            {/* Backdrop */}
+                            <div
+                                className="absolute inset-0 bg-black/50"
+                                onClick={handleClose}
+                            />
+                            {/* Modal */}
+                            <div className="relative z-10 w-80 max-w-[90vw] p-4 bg-deep border border-accent rounded-lg shadow-2xl text-sm text-gray-200 leading-relaxed">
+                                <button
+                                    className="absolute top-2 right-2 text-gray-400 hover:text-white p-1"
+                                    onClick={handleClose}
+                                >
+                                    <Icon name="X" size={18} />
+                                </button>
+                                <div className="pr-6">{text}</div>
+                            </div>
+                        </div>,
+                        document.body
+                    )}
+                </span>
+            );
+        };
+
         // Input component
         const Input = ({ label, value, onChange, unit, min, max, step = 1, tooltip }) => (
             <div className="mb-3">
                 <label className="flex items-center text-xs text-gray-400 mb-1 font-medium uppercase tracking-wide">
                     {label}
-                    {tooltip && (
-                        <span className="ml-1 cursor-help text-gray-500" title={tooltip}>
-                            <Icon name="HelpCircle" size={12} />
-                        </span>
-                    )}
+                    <Tooltip text={tooltip} />
                 </label>
                 <div className="relative">
                     <input
@@ -1056,7 +1102,7 @@
                         min={min}
                         max={max}
                         step={step}
-                        className="w-full bg-deep border border-gray-700 rounded-lg px-3 py-2 text-sm font-mono 
+                        className="w-full bg-deep border border-gray-700 rounded-lg px-3 py-2 text-sm font-mono
                                    text-white focus:outline-none focus:border-accent input-focus transition-all"
                     />
                     {unit && (
@@ -1067,6 +1113,134 @@
                 </div>
             </div>
         );
+
+        // Dual Currency Input - allows input in USD or BRL with automatic conversion
+        const DualCurrencyInput = ({ label, valueUSD, valueBRL, onChangeUSD, onChangeBRL, fx, tooltip, minUSD = 0, stepUSD = 10000 }) => {
+            const [activeInput, setActiveInput] = useState('usd');
+
+            const handleUSDChange = (newUSD) => {
+                onChangeUSD(newUSD);
+                if (onChangeBRL) {
+                    onChangeBRL(newUSD * fx);
+                }
+            };
+
+            const handleBRLChange = (newBRL) => {
+                if (onChangeBRL) {
+                    onChangeBRL(newBRL);
+                }
+                onChangeUSD(newBRL / fx);
+            };
+
+            const formatNumber = (num) => {
+                if (num >= 1000000) return `${(num / 1000000).toFixed(2)}M`;
+                if (num >= 1000) return `${(num / 1000).toFixed(0)}k`;
+                return num.toFixed(0);
+            };
+
+            return (
+                <div className="mb-3">
+                    <label className="flex items-center text-xs text-gray-400 mb-1 font-medium uppercase tracking-wide">
+                        {label}
+                        <Tooltip text={tooltip} />
+                    </label>
+                    <div className="flex gap-1">
+                        <div className="relative flex-1">
+                            <input
+                                type="number"
+                                value={valueUSD}
+                                onChange={(e) => handleUSDChange(parseFloat(e.target.value) || 0)}
+                                min={minUSD}
+                                step={stepUSD}
+                                onFocus={() => setActiveInput('usd')}
+                                className={`w-full bg-deep border rounded-lg px-3 py-2 text-sm font-mono text-white focus:outline-none input-focus transition-all ${
+                                    activeInput === 'usd' ? 'border-accent' : 'border-gray-700'
+                                }`}
+                            />
+                            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-500">USD</span>
+                        </div>
+                        <div className="flex items-center px-1 text-gray-600">
+                            <Icon name="ArrowLeftRight" size={14} />
+                        </div>
+                        <div className="relative flex-1">
+                            <input
+                                type="number"
+                                value={Math.round(valueUSD * fx)}
+                                onChange={(e) => handleBRLChange(parseFloat(e.target.value) || 0)}
+                                min={0}
+                                step={stepUSD * fx}
+                                onFocus={() => setActiveInput('brl')}
+                                className={`w-full bg-deep border rounded-lg px-3 py-2 text-sm font-mono text-white focus:outline-none input-focus transition-all ${
+                                    activeInput === 'brl' ? 'border-accent' : 'border-gray-700'
+                                }`}
+                            />
+                            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-500">BRL</span>
+                        </div>
+                    </div>
+                    <div className="text-xs text-gray-600 mt-1 text-center">
+                        1 USD = {fx.toFixed(2)} BRL
+                    </div>
+                </div>
+            );
+        };
+
+        // BRL Input with USD equivalent display
+        const BRLInputWithUSD = ({ label, valueBRL, onChange, fx, tooltip, min = 0, step = 10000 }) => {
+            const [activeInput, setActiveInput] = useState('brl');
+
+            const handleBRLChange = (newBRL) => {
+                onChange(newBRL);
+            };
+
+            const handleUSDChange = (newUSD) => {
+                onChange(newUSD * fx);
+            };
+
+            return (
+                <div className="mb-3">
+                    <label className="flex items-center text-xs text-gray-400 mb-1 font-medium uppercase tracking-wide">
+                        {label}
+                        <Tooltip text={tooltip} />
+                    </label>
+                    <div className="flex gap-1">
+                        <div className="relative flex-1">
+                            <input
+                                type="number"
+                                value={valueBRL}
+                                onChange={(e) => handleBRLChange(parseFloat(e.target.value) || 0)}
+                                min={min}
+                                step={step}
+                                onFocus={() => setActiveInput('brl')}
+                                className={`w-full bg-deep border rounded-lg px-3 py-2 text-sm font-mono text-white focus:outline-none input-focus transition-all ${
+                                    activeInput === 'brl' ? 'border-accent' : 'border-gray-700'
+                                }`}
+                            />
+                            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-500">BRL</span>
+                        </div>
+                        <div className="flex items-center px-1 text-gray-600">
+                            <Icon name="ArrowLeftRight" size={14} />
+                        </div>
+                        <div className="relative flex-1">
+                            <input
+                                type="number"
+                                value={Math.round(valueBRL / fx)}
+                                onChange={(e) => handleUSDChange(parseFloat(e.target.value) || 0)}
+                                min={0}
+                                step={Math.round(step / fx)}
+                                onFocus={() => setActiveInput('usd')}
+                                className={`w-full bg-deep border rounded-lg px-3 py-2 text-sm font-mono text-white focus:outline-none input-focus transition-all ${
+                                    activeInput === 'usd' ? 'border-accent' : 'border-gray-700'
+                                }`}
+                            />
+                            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-500">USD</span>
+                        </div>
+                    </div>
+                    <div className="text-xs text-gray-600 mt-1 text-center">
+                        1 USD = {fx.toFixed(2)} BRL
+                    </div>
+                </div>
+            );
+        };
 
         // Toggle component
         const Toggle = ({ label, checked, onChange }) => (
@@ -2416,23 +2590,14 @@
                                 <Icon name="Wallet" size={16} />
                                 Portfólio Inicial
                             </h2>
-                            <Input
-                                label="Patrimônio (USD)"
-                                value={params.initialPortfolioUSD}
-                                onChange={(v) => updateParam('initialPortfolioUSD', v)}
-                                unit="USD"
-                                min={100000}
-                                step={50000}
-                                tooltip="Renda variável em USD (sujeita a variação cambial)"
-                            />
-                            <Input
-                                label="Patrimônio (BRL)"
-                                value={params.initialPortfolioBRL}
-                                onChange={(v) => updateParam('initialPortfolioBRL', v)}
-                                unit="BRL"
-                                min={0}
-                                step={10000}
-                                tooltip="Renda fixa brasileira (sem exposição cambial)"
+                            <DualCurrencyInput
+                                label="Patrimônio Total"
+                                valueUSD={params.initialPortfolioUSD}
+                                onChangeUSD={(v) => updateParam('initialPortfolioUSD', v)}
+                                fx={params.initialFX}
+                                minUSD={10000}
+                                stepUSD={50000}
+                                tooltip="Valor total do seu portfólio de investimentos. Pode ser inserido em USD ou BRL - o outro campo será calculado automaticamente usando o câmbio. A divisão entre Renda Variável e Renda Fixa será definida pelo '% RF Inicial' na seção Estratégia Tenda abaixo."
                             />
                             <Input
                                 label="Câmbio Inicial"
@@ -2442,6 +2607,7 @@
                                 min={3}
                                 max={10}
                                 step={0.1}
+                                tooltip="Taxa de câmbio atual (quantos reais por dólar). Este valor serve como ponto de partida e também como 'âncora' para o modelo de reversão à média do câmbio. Durante a simulação, o câmbio varia de forma estocástica mas tende a retornar a este valor no longo prazo."
                             />
                             <Input
                                 label="Taxa de Retirada (SWR)"
@@ -2451,7 +2617,7 @@
                                 min={2}
                                 max={8}
                                 step={0.1}
-                                tooltip="Safe Withdrawal Rate - percentual do portfolio retirado anualmente. Bengen revisou para 4.7% em 2006"
+                                tooltip="Safe Withdrawal Rate - percentual do portfólio total retirado no primeiro ano, ajustado pela inflação nos anos seguintes. O estudo original de Bengen (1994) sugeriu 4%, mas foi revisado para 4.7% em 2006 considerando diversificação internacional. Taxas mais altas aumentam o risco de depleção; mais baixas deixam mais herança."
                             />
                         </div>
 
@@ -2469,7 +2635,7 @@
                                 min={0}
                                 max={15}
                                 step={0.5}
-                                tooltip="Retorno médio anual esperado da renda variável (ações/ETFs)"
+                                tooltip="Retorno médio anual esperado da renda variável em termos REAIS (acima da inflação). Historicamente, o mercado global retorna ~7% a.a. real. Valores mais conservadores (5-6%) são recomendados para planejamento de longo prazo. Este é o retorno antes de impostos."
                             />
                             <Input
                                 label="Volatilidade RV"
@@ -2479,7 +2645,7 @@
                                 min={5}
                                 max={40}
                                 step={1}
-                                tooltip="Desvio padrão dos retornos da renda variável - mede a variação ano a ano"
+                                tooltip="Desvio padrão dos retornos anuais da renda variável. Mede o quanto o retorno varia de ano para ano. O S&P 500 historicamente tem ~15-18%. Mercados emergentes podem chegar a 25%+. Maior volatilidade significa maiores oscilações tanto para cima quanto para baixo."
                             />
                             <Input
                                 label="Retorno RF Real (a.a.)"
@@ -2489,7 +2655,7 @@
                                 min={0}
                                 max={10}
                                 step={0.5}
-                                tooltip="Retorno médio anual esperado da renda fixa acima da inflação"
+                                tooltip="Retorno REAL (acima da inflação) esperado da renda fixa. No Brasil, títulos IPCA+ historicamente pagam 4-6% + IPCA. Se usar o modelo IPCA (abaixo), este valor é substituído pelo 'Spread Real RF'. Em países desenvolvidos, RF real é tipicamente 1-2%."
                             />
                             <Input
                                 label="Volatilidade RF"
@@ -2499,7 +2665,7 @@
                                 min={1}
                                 max={15}
                                 step={0.5}
-                                tooltip="Desvio padrão dos retornos da renda fixa - geralmente menor que RV"
+                                tooltip="Desvio padrão dos retornos anuais da renda fixa. Títulos de curto prazo têm volatilidade baixa (~2-4%). Títulos longos (Tesouro IPCA+ 2045) podem ter volatilidade de 10%+ devido à marcação a mercado. Fundos de RF também variam."
                             />
                             <Input
                                 label="Inflação Brasil"
@@ -2509,7 +2675,7 @@
                                 min={2}
                                 max={12}
                                 step={0.5}
-                                tooltip="Taxa de inflação anual esperada no Brasil (IPCA)"
+                                tooltip="Taxa de inflação anual esperada no Brasil (IPCA). A meta do Banco Central é 3% a.a. com tolerância de 1.5pp. Historicamente, a inflação brasileira fica entre 4-6%. Este valor é usado para ajustar os saques e manter o poder de compra. Se usar o modelo IPCA, este valor vira a 'Inflação Esperada'."
                             />
                         </div>
 
@@ -2517,7 +2683,7 @@
                         <div className="mb-6">
                             <h2 className="text-sm font-semibold text-gray-300 mb-3 flex items-center gap-2">
                                 <Icon name="Tent" size={16} />
-                                Estratégia Tenda
+                                Estratégia Tenda (Glidepath)
                             </h2>
                             <Input
                                 label="% RF Inicial (Tenda)"
@@ -2527,7 +2693,7 @@
                                 min={10}
                                 max={60}
                                 step={5}
-                                tooltip="Alocação em RF durante o período de proteção"
+                                tooltip="A 'Estratégia Tenda' (ou Rising Equity Glidepath) começa com mais RF para proteger contra o 'Sequence of Returns Risk' - o risco de retornos ruins nos primeiros anos da aposentadoria. Este é o percentual em RF no início. Exemplo: 40% significa 60% em RV + 40% em RF."
                             />
                             <Input
                                 label="Duração da Tenda"
@@ -2537,7 +2703,7 @@
                                 min={1}
                                 max={15}
                                 step={1}
-                                tooltip="Quantos anos a alocação em RF fica elevada antes de começar a reduzir"
+                                tooltip="Quantos anos manter a alocação elevada em RF antes de começar a transição para o percentual alvo. Pesquisas sugerem 5-10 anos. Após este período, a alocação gradualmente migra para o alvo de longo prazo. Esta proteção inicial é crítica porque perdas nos primeiros anos têm impacto desproporcional no portfólio."
                             />
                             <Input
                                 label="% RF Alvo (Longo Prazo)"
@@ -2547,7 +2713,7 @@
                                 min={5}
                                 max={50}
                                 step={5}
-                                tooltip="Alocação em RF após o período da tenda e transição"
+                                tooltip="Alocação em RF após a fase de proteção e período de transição. Com os primeiros anos críticos superados, pode-se assumir mais risco para capturar retornos. Valores típicos: 20-30%. A transição leva 3 anos. Exemplo: se inicial=40% e alvo=20%, após a tenda a RF reduz gradualmente de 40% → 20%."
                             />
                         </div>
 
@@ -2557,11 +2723,16 @@
                                 <Icon name="Settings2" size={16} />
                                 Regras Guyton-Klinger
                             </h2>
-                            <Toggle
-                                label="Regra da Inflação"
-                                checked={params.applyInflationRule}
-                                onChange={(v) => updateParam('applyInflationRule', v)}
-                            />
+                            <div className="mb-2">
+                                <Toggle
+                                    label="Regra da Inflação"
+                                    checked={params.applyInflationRule}
+                                    onChange={(v) => updateParam('applyInflationRule', v)}
+                                />
+                                <div className="text-xs text-gray-600 -mt-2 mb-2">
+                                    Pula ajuste inflacionário após anos de retorno negativo
+                                </div>
+                            </div>
                             <Input
                                 label="Gatilho Preservation"
                                 value={params.preservationThreshold * 100}
@@ -2570,7 +2741,7 @@
                                 min={5}
                                 max={50}
                                 step={5}
-                                tooltip="Se taxa atual > taxa inicial + este %, reduz saque"
+                                tooltip="REGRA DE PRESERVAÇÃO: Quando o portfólio cai, a taxa de retirada atual (saque ÷ portfólio) sobe. Se esta taxa ultrapassar a taxa inicial em mais de X%, o saque é REDUZIDO. Exemplo: taxa inicial 4.7%, gatilho 20%. Se taxa atual > 5.64% (4.7% × 1.2), reduz o saque. Protege o portfólio em bear markets."
                             />
                             <Input
                                 label="Gatilho Prosperity"
@@ -2580,7 +2751,7 @@
                                 min={5}
                                 max={50}
                                 step={5}
-                                tooltip="Se taxa atual < taxa inicial - este %, aumenta saque"
+                                tooltip="REGRA DE PROSPERIDADE: Quando o portfólio sobe, a taxa de retirada atual cai. Se esta taxa ficar abaixo da taxa inicial em mais de X%, o saque é AUMENTADO. Exemplo: taxa inicial 4.7%, gatilho 20%. Se taxa atual < 3.76% (4.7% × 0.8), aumenta o saque. Permite aproveitar bull markets."
                             />
                             <Input
                                 label="Ajuste Percentual"
@@ -2590,10 +2761,10 @@
                                 min={5}
                                 max={25}
                                 step={5}
-                                tooltip="Percentual de ajuste quando gatilhos são atingidos"
+                                tooltip="Magnitude do ajuste quando os gatilhos são ativados. Se 10%, o saque é reduzido/aumentado em 10% do valor atual. Valores típicos: 10% (moderado) a 15% (agressivo). Ajustes maiores protegem mais o portfólio mas causam maior variação no padrão de vida."
                             />
-                            <div className="text-xs text-gray-500 mb-3">
-                                Gatilhos: ±{(params.preservationThreshold * 100).toFixed(0)}% da taxa inicial → ajuste de ±{(params.adjustmentPercent * 100).toFixed(0)}%
+                            <div className="text-xs text-gray-500 mb-3 p-2 bg-midnight rounded">
+                                <strong>Resumo G-K:</strong> Taxa inicial {params.withdrawalRate}% → Gatilhos em {(params.withdrawalRate * (1 + params.preservationThreshold)).toFixed(1)}% (↓) e {(params.withdrawalRate * (1 - params.prosperityThreshold)).toFixed(1)}% (↑) → Ajuste de ±{(params.adjustmentPercent * 100).toFixed(0)}%
                             </div>
                         </div>
 
@@ -2603,26 +2774,31 @@
                                 <Icon name="ShieldAlert" size={16} />
                                 Saque Mínimo Necessário
                             </h2>
-                            <Toggle
-                                label="Definir Saque Mínimo"
-                                checked={params.useMinimumWithdrawal}
-                                onChange={(v) => updateParam('useMinimumWithdrawal', v)}
-                            />
+                            <div className="mb-2">
+                                <Toggle
+                                    label="Definir Saque Mínimo"
+                                    checked={params.useMinimumWithdrawal}
+                                    onChange={(v) => updateParam('useMinimumWithdrawal', v)}
+                                />
+                                <div className="text-xs text-gray-600 -mt-2 mb-2">
+                                    Garante um piso de saque independente das regras G-K
+                                </div>
+                            </div>
                             {params.useMinimumWithdrawal && (
-                                <Input
+                                <BRLInputWithUSD
                                     label="Valor Mínimo Anual"
-                                    value={params.minimumWithdrawalBRL}
+                                    valueBRL={params.minimumWithdrawalBRL}
                                     onChange={(v) => updateParam('minimumWithdrawalBRL', v)}
-                                    unit="BRL"
+                                    fx={params.initialFX}
                                     min={0}
                                     step={10000}
-                                    tooltip="Saque NUNCA será menor que este valor"
+                                    tooltip="O saque NUNCA será menor que este valor, mesmo que as regras de Guyton-Klinger recomendem menos. Representa seu custo de vida mínimo irredutível (despesas essenciais: moradia, alimentação, saúde, impostos). ATENÇÃO: Forçar um saque acima do recomendado por G-K acelera a depleção do portfólio. A análise de stress mostrará quando e por quanto tempo este mínimo foi necessário."
                                 />
                             )}
-                            <div className="text-xs text-gray-500 mt-1">
-                                {params.useMinimumWithdrawal 
-                                    ? <span className="text-warning">Saque mínimo garantido: {formatCurrency(params.minimumWithdrawalBRL)}/ano (pode acelerar depleção)</span>
-                                    : "Desativado: saques seguem apenas as regras de G-K"
+                            <div className="text-xs text-gray-500 mt-1 p-2 bg-midnight rounded">
+                                {params.useMinimumWithdrawal
+                                    ? <span className="text-warning">⚠️ Saque mínimo garantido: {formatCurrency(params.minimumWithdrawalBRL)}/ano ({formatCurrency(params.minimumWithdrawalBRL/12)}/mês). Pode acelerar depleção em cenários adversos.</span>
+                                    : "✓ Desativado: saques seguem apenas as regras de G-K (máxima preservação do portfólio)"
                                 }
                             </div>
                         </div>
@@ -2633,11 +2809,16 @@
                                 <Icon name="Layers" size={16} />
                                 Estratégia de Buckets
                             </h2>
-                            <Toggle
-                                label="Usar Buckets"
-                                checked={params.useBucketStrategy}
-                                onChange={(v) => updateParam('useBucketStrategy', v)}
-                            />
+                            <div className="mb-2">
+                                <Toggle
+                                    label="Usar Buckets"
+                                    checked={params.useBucketStrategy}
+                                    onChange={(v) => updateParam('useBucketStrategy', v)}
+                                />
+                                <div className="text-xs text-gray-600 -mt-2 mb-2">
+                                    Separa fontes de saque por horizonte de tempo
+                                </div>
+                            </div>
                             {params.useBucketStrategy && (
                                 <Input
                                     label="Anos de Proteção"
@@ -2647,13 +2828,13 @@
                                     min={1}
                                     max={15}
                                     step={1}
-                                    tooltip="Saques vêm exclusivamente da RF neste período"
+                                    tooltip="BUCKET STRATEGY: Nos primeiros X anos, os saques vêm EXCLUSIVAMENTE da renda fixa, protegendo a renda variável de vendas forçadas durante quedas de mercado. Isso dá tempo para a RV se recuperar de bear markets. Após este período, pode-se rebalancear normalmente. Típico: 3-7 anos. Deve ser compatível com a % RF inicial da estratégia tenda."
                                 />
                             )}
-                            <div className="text-xs text-gray-500">
-                                {params.useBucketStrategy 
-                                    ? `Primeiros ${params.bucketYears} anos: saques da RF apenas`
-                                    : "Desativado: saques proporcionais à alocação"
+                            <div className="text-xs text-gray-500 p-2 bg-midnight rounded">
+                                {params.useBucketStrategy
+                                    ? `🪣 Primeiros ${params.bucketYears} anos: saques vêm da RF (${params.tentInitialBondPercent}% = ${formatCurrency(params.initialPortfolioUSD * params.initialFX * (params.tentInitialBondPercent / 100))})`
+                                    : "Desativado: saques proporcionais à alocação atual RV/RF"
                                 }
                             </div>
                         </div>
@@ -2664,118 +2845,138 @@
                                 <Icon name="FlaskConical" size={16} />
                                 Modelagem Avançada
                             </h2>
-                            
+
                             {/* Distribution Model */}
-                            <Toggle
-                                label="Distribuição T-Student"
-                                checked={params.useStudentT}
-                                onChange={(v) => updateParam('useStudentT', v)}
-                            />
-                            {params.useStudentT && (
-                                <Input
-                                    label="Graus de Liberdade"
-                                    value={params.degreesOfFreedom}
-                                    onChange={(v) => updateParam('degreesOfFreedom', v)}
-                                    min={3}
-                                    max={30}
-                                    step={1}
-                                    tooltip="Menor = caudas mais gordas (5-7 típico)"
+                            <div className="mb-2 p-2 bg-midnight rounded border border-gray-800">
+                                <Toggle
+                                    label="Distribuição T-Student"
+                                    checked={params.useStudentT}
+                                    onChange={(v) => updateParam('useStudentT', v)}
                                 />
-                            )}
-                            
-                            {/* Dynamic Correlation */}
-                            <Toggle
-                                label="Correlação Dinâmica FX"
-                                checked={params.useDynamicCorrelation}
-                                onChange={(v) => updateParam('useDynamicCorrelation', v)}
-                            />
-                            {params.useDynamicCorrelation && (
-                                <>
+                                <div className="text-xs text-gray-600 -mt-2 mb-1">
+                                    Modela 'cisnes negros' com caudas mais gordas que normal
+                                </div>
+                                {params.useStudentT && (
                                     <Input
-                                        label="Correlação Base"
-                                        value={params.baseCorrelation}
-                                        onChange={(v) => updateParam('baseCorrelation', v)}
-                                        min={-0.9}
-                                        max={0}
-                                        step={0.1}
-                                        tooltip="Correlação entre RV e câmbio em condições normais (negativa = dólar sobe quando bolsa cai)"
-                                    />
-                                    <Input
-                                        label="Multiplicador Stress"
-                                        value={params.stressCorrelationMultiplier}
-                                        onChange={(v) => updateParam('stressCorrelationMultiplier', v)}
-                                        min={1}
-                                        max={3}
-                                        step={0.1}
-                                        tooltip="Quanto a correlação aumenta em crises (flight to safety)"
-                                    />
-                                </>
-                            )}
-                            
-                            {/* IPCA Model */}
-                            <Toggle
-                                label="Modelo IPCA + Juro Real"
-                                checked={params.useIPCAModel}
-                                onChange={(v) => updateParam('useIPCAModel', v)}
-                            />
-                            {params.useIPCAModel && (
-                                <>
-                                    <Input
-                                        label="IPCA Esperado"
-                                        value={params.expectedIPCA}
-                                        onChange={(v) => updateParam('expectedIPCA', v)}
-                                        unit="%"
-                                        min={0}
-                                        max={15}
-                                        step={0.5}
-                                        tooltip="Inflação anual esperada no Brasil (meta do BC é 3%)"
-                                    />
-                                    <Input
-                                        label="Spread Real RF"
-                                        value={params.realSpread}
-                                        onChange={(v) => updateParam('realSpread', v)}
-                                        unit="%"
-                                        min={0}
-                                        max={10}
-                                        step={0.5}
-                                        tooltip="Juro real sobre IPCA"
-                                    />
-                                </>
-                            )}
-                            
-                            {/* Tax Model */}
-                            <Toggle
-                                label="Modelo Tributário"
-                                checked={params.useTaxModel}
-                                onChange={(v) => updateParam('useTaxModel', v)}
-                            />
-                            {params.useTaxModel && (
-                                <>
-                                    <Input
-                                        label="IR ETFs Irlandeses"
-                                        value={params.equityTaxRate}
-                                        onChange={(v) => updateParam('equityTaxRate', v)}
-                                        unit="%"
-                                        min={0}
+                                        label="Graus de Liberdade (ν)"
+                                        value={params.degreesOfFreedom}
+                                        onChange={(v) => updateParam('degreesOfFreedom', v)}
+                                        min={3}
                                         max={30}
                                         step={1}
-                                        tooltip="Alíquota de IR sobre ganhos de capital em ETFs irlandeses"
+                                        tooltip="A distribuição T-Student captura eventos extremos ('cisnes negros') melhor que a distribuição normal. Os graus de liberdade (ν) controlam o 'peso' das caudas: valores menores = caudas mais gordas = mais eventos extremos. Típico para mercados: ν=5-7. Com ν=5, há ~3x mais chance de retornos além de 3 desvios padrão comparado à normal. Com ν→∞, converge para normal."
                                     />
-                                    <Input
-                                        label="IR Renda Fixa BR"
-                                        value={params.fixedIncomeTaxRate}
-                                        onChange={(v) => updateParam('fixedIncomeTaxRate', v)}
-                                        unit="%"
-                                        min={0}
-                                        max={25}
-                                        step={1}
-                                        tooltip="Alíquota de IR sobre rendimentos da renda fixa brasileira"
-                                    />
-                                </>
-                            )}
-                            
+                                )}
+                            </div>
+
+                            {/* Dynamic Correlation */}
+                            <div className="mb-2 p-2 bg-midnight rounded border border-gray-800">
+                                <Toggle
+                                    label="Correlação Dinâmica FX"
+                                    checked={params.useDynamicCorrelation}
+                                    onChange={(v) => updateParam('useDynamicCorrelation', v)}
+                                />
+                                <div className="text-xs text-gray-600 -mt-2 mb-1">
+                                    Dólar sobe mais forte quando bolsa cai forte
+                                </div>
+                                {params.useDynamicCorrelation && (
+                                    <>
+                                        <Input
+                                            label="Correlação Base"
+                                            value={params.baseCorrelation}
+                                            onChange={(v) => updateParam('baseCorrelation', v)}
+                                            min={-0.9}
+                                            max={0}
+                                            step={0.1}
+                                            tooltip="Correlação entre retornos de RV e variação cambial em condições NORMAIS de mercado. Valor NEGATIVO significa que quando a bolsa cai, o dólar sobe (protegendo parcialmente o investidor brasileiro). Historicamente ~-0.3 a -0.5 para Brasil. Valor 0 = sem correlação. Esta é a correlação 'base' que é amplificada em crises."
+                                        />
+                                        <Input
+                                            label="Multiplicador em Crises"
+                                            value={params.stressCorrelationMultiplier}
+                                            onChange={(v) => updateParam('stressCorrelationMultiplier', v)}
+                                            min={1}
+                                            max={3}
+                                            step={0.1}
+                                            tooltip="Em crises (quedas >1σ), a correlação negativa se INTENSIFICA: investidores globais fogem para ativos seguros (USD), enfraquecendo moedas emergentes como o BRL. Este multiplicador define quanto a correlação base é amplificada. Ex: base -0.4 com mult. 2.0 → correlação -0.8 em crises severas. Fenômeno conhecido como 'flight to quality'."
+                                        />
+                                    </>
+                                )}
+                            </div>
+
+                            {/* IPCA Model */}
+                            <div className="mb-2 p-2 bg-midnight rounded border border-gray-800">
+                                <Toggle
+                                    label="Modelo IPCA + Juro Real"
+                                    checked={params.useIPCAModel}
+                                    onChange={(v) => updateParam('useIPCAModel', v)}
+                                />
+                                <div className="text-xs text-gray-600 -mt-2 mb-1">
+                                    RF = IPCA variável + spread real (mais realista)
+                                </div>
+                                {params.useIPCAModel && (
+                                    <>
+                                        <Input
+                                            label="IPCA Esperado"
+                                            value={params.expectedIPCA}
+                                            onChange={(v) => updateParam('expectedIPCA', v)}
+                                            unit="%"
+                                            min={0}
+                                            max={15}
+                                            step={0.5}
+                                            tooltip="Inflação média anual esperada no Brasil (IPCA). A meta do BC é 3% com banda de 1.5pp. Historicamente fica entre 4-6%. O modelo simula variação ano a ano ao redor desta média, com leve correlação negativa com RV (inflação tende a subir em crises econômicas). IPCA é limitado entre 0% e 15% na simulação."
+                                        />
+                                        <Input
+                                            label="Spread Real sobre IPCA"
+                                            value={params.realSpread}
+                                            onChange={(v) => updateParam('realSpread', v)}
+                                            unit="%"
+                                            min={0}
+                                            max={10}
+                                            step={0.5}
+                                            tooltip="Prêmio de juro REAL (acima da inflação) da renda fixa brasileira. Tesouro IPCA+ historicamente paga 4-6% + IPCA. Com este modelo ativado, o retorno da RF = IPCA do ano + este spread. Substitui o 'Retorno RF Real' fixo da seção anterior. Mais realista pois captura a relação entre inflação e juros nominais."
+                                        />
+                                    </>
+                                )}
+                            </div>
+
+                            {/* Tax Model */}
+                            <div className="mb-2 p-2 bg-midnight rounded border border-gray-800">
+                                <Toggle
+                                    label="Modelo Tributário"
+                                    checked={params.useTaxModel}
+                                    onChange={(v) => updateParam('useTaxModel', v)}
+                                />
+                                <div className="text-xs text-gray-600 -mt-2 mb-1">
+                                    Desconta IR sobre ganhos nos saques
+                                </div>
+                                {params.useTaxModel && (
+                                    <>
+                                        <Input
+                                            label="IR ETFs Irlandeses"
+                                            value={params.equityTaxRate}
+                                            onChange={(v) => updateParam('equityTaxRate', v)}
+                                            unit="%"
+                                            min={0}
+                                            max={30}
+                                            step={1}
+                                            tooltip="Alíquota de IR sobre GANHOS de capital em ETFs irlandeses (não sobre principal). ETFs irlandeses (UCITS) são tributados a 15% no Brasil sobre o ganho na venda. O modelo estima que a proporção de ganho aumenta ~6% ao ano até 60% máximo. Ex: ano 10 → ~60% do saque é ganho → IR = saque × 60% × 15%."
+                                        />
+                                        <Input
+                                            label="IR Renda Fixa BR"
+                                            value={params.fixedIncomeTaxRate}
+                                            onChange={(v) => updateParam('fixedIncomeTaxRate', v)}
+                                            unit="%"
+                                            min={0}
+                                            max={25}
+                                            step={1}
+                                            tooltip="Alíquota simplificada de IR sobre rendimentos da RF brasileira. Na realidade, segue tabela regressiva (22.5% a 15% conforme prazo). Para simulação de longo prazo, 15% é uma aproximação razoável. Aplicado sobre a parcela de ganhos dos saques de RF."
+                                        />
+                                    </>
+                                )}
+                            </div>
+
                             {/* Max Negative Sequence Constraint */}
-                            <div className="mt-3">
+                            <div className="p-2 bg-midnight rounded border border-gray-800">
                                 <Input
                                     label="Máx. Anos Negativos Consecutivos"
                                     value={params.maxNegativeSequence}
@@ -2783,16 +2984,17 @@
                                     min={5}
                                     max={20}
                                     step={1}
-                                    tooltip="Limita sequências prolongadas de retornos negativos para refletir melhor a história do mercado"
+                                    tooltip="Limita sequências irrealisticamente longas de retornos negativos. Historicamente, mercados globais nunca tiveram mais de 4-5 anos consecutivos de queda. Este parâmetro força um retorno neutro/positivo após X anos negativos seguidos, evitando cenários 'apocalípticos' que distorcem a análise. Valores típicos: 7-10 anos."
                                 />
                             </div>
-                            
-                            <div className="text-xs text-gray-500 mt-2 space-y-1">
-                                {params.useStudentT && <div>• T-Student (df={params.degreesOfFreedom}): captura cisnes negros</div>}
-                                {params.useDynamicCorrelation && <div>• Correl. dinâmica: -{Math.abs(params.baseCorrelation)} → -{Math.abs(params.baseCorrelation * params.stressCorrelationMultiplier).toFixed(1)} em crises</div>}
-                                {params.useIPCAModel && <div>• RF = IPCA ({params.expectedIPCA}%) + {params.realSpread}% real</div>}
-                                {params.useTaxModel && <div>• IR: {params.equityTaxRate}% RV, {params.fixedIncomeTaxRate}% RF</div>}
-                                <div>• Máx. {params.maxNegativeSequence} anos negativos consecutivos</div>
+
+                            <div className="text-xs text-gray-500 mt-3 p-2 bg-surface rounded space-y-1">
+                                <div className="font-semibold text-gray-400 mb-1">Resumo da Modelagem:</div>
+                                {params.useStudentT && <div>• <span className="text-purple-400">T-Student (ν={params.degreesOfFreedom})</span>: captura cisnes negros</div>}
+                                {params.useDynamicCorrelation && <div>• <span className="text-blue-400">Correl. dinâmica</span>: {params.baseCorrelation} normal → {(params.baseCorrelation * params.stressCorrelationMultiplier).toFixed(1)} em crises</div>}
+                                {params.useIPCAModel && <div>• <span className="text-green-400">Modelo IPCA</span>: RF = IPCA~{params.expectedIPCA}% + {params.realSpread}% real</div>}
+                                {params.useTaxModel && <div>• <span className="text-yellow-400">Tributação</span>: {params.equityTaxRate}% RV / {params.fixedIncomeTaxRate}% RF</div>}
+                                <div>• <span className="text-red-400">Limite</span>: máx. {params.maxNegativeSequence} anos negativos seguidos</div>
                             </div>
                         </div>
 
@@ -2803,14 +3005,14 @@
                                 Simulação
                             </h2>
                             <Input
-                                label="Duração"
+                                label="Horizonte (Duração)"
                                 value={params.years}
                                 onChange={(v) => updateParam('years', v)}
                                 unit="anos"
                                 min={10}
                                 max={50}
                                 step={5}
-                                tooltip="Horizonte de tempo da aposentadoria em anos"
+                                tooltip="Por quantos anos você precisa que seu portfólio dure. Para aposentadoria tradicional (65 anos), considere 30 anos. Para FIRE (aposentadoria antecipada aos 40-50 anos), considere 40-50 anos. Este é o período sobre o qual a simulação avalia a sobrevivência do portfólio."
                             />
                             <Input
                                 label="Iterações Monte Carlo"
@@ -2819,7 +3021,7 @@
                                 min={500}
                                 max={10000}
                                 step={500}
-                                tooltip="Número de cenários simulados - mais iterações = resultados mais precisos"
+                                tooltip="Número de cenários independentes simulados. Cada iteração gera uma 'história alternativa' de retornos, câmbio e inflação. Mais iterações = resultados mais estáveis e confiáveis, mas mais demorado. 1000-2000 é um bom equilíbrio entre precisão e velocidade. Para análise final, use 5000+."
                             />
                         </div>
 
@@ -2851,12 +3053,24 @@
                             <div className="text-xs text-gray-500 mb-2">Valores Iniciais Calculados</div>
                             <div className="space-y-1 text-xs">
                                 <div className="flex justify-between">
-                                    <span className="text-gray-400">Portfólio em BRL:</span>
+                                    <span className="text-gray-400">Portfólio Total:</span>
                                     <span className="font-mono text-accent">
                                         {formatCurrency(params.initialPortfolioUSD * params.initialFX)}
                                     </span>
                                 </div>
-                                <div className="flex justify-between">
+                                <div className="flex justify-between pl-2 text-gray-500">
+                                    <span>├ RV ({100 - params.tentInitialBondPercent}%):</span>
+                                    <span className="font-mono">
+                                        {formatCurrency(params.initialPortfolioUSD * params.initialFX * (1 - params.tentInitialBondPercent / 100))}
+                                    </span>
+                                </div>
+                                <div className="flex justify-between pl-2 text-gray-500">
+                                    <span>└ RF ({params.tentInitialBondPercent}%):</span>
+                                    <span className="font-mono">
+                                        {formatCurrency(params.initialPortfolioUSD * params.initialFX * (params.tentInitialBondPercent / 100))}
+                                    </span>
+                                </div>
+                                <div className="flex justify-between pt-1 border-t border-gray-800 mt-1">
                                     <span className="text-gray-400">Saque Anual:</span>
                                     <span className="font-mono text-info">
                                         {formatCurrency(params.initialPortfolioUSD * (params.withdrawalRate / 100) * params.initialFX)}
@@ -2872,7 +3086,7 @@
                                     <div className="flex justify-between pt-1 border-t border-gray-800 mt-1">
                                         <span className="text-gray-400">Mínimo Aceitável:</span>
                                         <span className="font-mono text-warning">
-                                            {formatCurrency(params.minimumWithdrawalBRL)}
+                                            {formatCurrency(params.minimumWithdrawalBRL)}/ano
                                         </span>
                                     </div>
                                 )}
