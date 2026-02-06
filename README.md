@@ -111,7 +111,7 @@ Baseada no trabalho de Harold Evensky, esta estratégia divide o portfólio em "
 ┌─────────────────────────────────────────────────┐
 │ Anos 1-5: Saques vêm APENAS da Renda Fixa       │
 │ ↓                                               │
-│ Protege a Renda Variável de vendas forçadas    │
+│ Protege a Renda Variável de vendas forçadas     │
 │ durante quedas de mercado                       │
 └─────────────────────────────────────────────────┘
 ```
