@@ -21,7 +21,10 @@ Um simulador avançado de aposentadoria baseado em simulações de Monte Carlo, 
 
 ## 🎯 Visão Geral
 
-Este simulador foi desenvolvido para investidores brasileiros que possuem portfólios diversificados internacionalmente (como ETFs irlandeses) e precisam planejar saques sustentáveis durante a aposentadoria.
+Este simulador foi desenvolvido para investidores brasileiros que possuem portfólios diversificados internacionalmente (como ETFs irlandeses) e precisam planejar saques sustentáveis durante a aposentadoria. Oferece dois modos de operação:
+
+- **Modo Preservação**: Você define a taxa de saque e o simulador calcula a probabilidade de sucesso
+- **Modo Consumo Máximo** (Die With Zero): Você define a probabilidade de sucesso desejada e o sistema calcula a maior taxa de saque possível
 
 ### Problema que Resolve
 
@@ -54,6 +57,16 @@ A clássica "Regra dos 4%" foi desenvolvida para o mercado americano com condiç
 | **Bucket Strategy** | Proteção contra sequence of returns risk |
 | **Rebalanceamento Inteligente** | Saque de RV quando acima do alvo para rebalancear |
 | **Saque Mínimo Garantido** | Nunca sacar menos que o necessário para sobreviver |
+
+### Otimizador de Consumo Máximo (Die With Zero)
+
+| Funcionalidade | Descrição |
+|----------------|-----------|
+| **Modo Consumo Máximo** | Calcula automaticamente a maior taxa de saque possível |
+| **Bissecção em Duas Fases** | Fase 1 (busca grossa) + Fase 2 (busca fina) para precisão e velocidade |
+| **Confiança Parametrizável** | Defina a probabilidade de sucesso desejada (70% a 99%) |
+| **Patrimônio Final Alvo** | Defina quanto deseja deixar ao final (R$ 0 = Die With Zero) |
+| **Tolerância Configurável** | Precisão da busca ajustável (0.05% a 0.5%) |
 
 ### Análise de Stress
 
@@ -157,6 +170,41 @@ O simulador oferece dois modos distintos:
 
 > **Aviso**: O modo NON-IID rejeita caminhos com sequências negativas além do limite, o que reduz a estimativa de risco em cenários extremos. Use com consciência das implicações.
 
+### Otimizador de Consumo Máximo
+
+Inspirado na filosofia "Die With Zero" de Bill Perkins, este modo inverte a pergunta usual:
+
+```
+Modo Preservação: "Quero sacar 4.7% — qual a probabilidade de sucesso?"
+Modo Consumo:     "Quero 90% de sucesso — quanto posso sacar?"
+```
+
+O otimizador usa **bissecção em duas fases** para encontrar a taxa ótima:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ Fase 1: Busca Grossa                                           │
+│ • Range: 0.5% a 15% SWR                                        │
+│ • 200 iterações Monte Carlo por teste                           │
+│ • Tolerância: 0.5%                                              │
+│ • ~5 passos → estreita o intervalo                              │
+├─────────────────────────────────────────────────────────────────┤
+│ Fase 2: Busca Fina                                              │
+│ • Range: resultado ± 1%                                         │
+│ • 1000 iterações Monte Carlo por teste                          │
+│ • Tolerância: configurável (default 0.1%)                       │
+│ • ~4 passos → encontra taxa ótima                               │
+├─────────────────────────────────────────────────────────────────┤
+│ Validação Final                                                 │
+│ • Executa simulação completa (2000+ iterações)                  │
+│ • Confirma resultado com máxima precisão                        │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Resultado**: "Para 90% de chance de não faltar dinheiro em 30 anos, usando Guyton-Klinger, você pode sacar inicialmente R$ X.XXX/mês (taxa de Y.YY%)."
+
+> **Nota importante**: O otimizador reutiliza TODOS os parâmetros configurados (G-K, Buckets, Tenda, T-Student, correlação dinâmica, impostos). Ele apenas busca a `withdrawalRate` ideal — não altera nenhuma regra de simulação.
+
 ### Correlação Dinâmica BRL/USD
 
 Em condições normais, a correlação entre retornos de RV e câmbio é aproximadamente -0.4 (quando bolsa cai, dólar sobe). Mas em crises extremas:
@@ -173,13 +221,26 @@ O simulador modela isso dinamicamente baseado na severidade da queda.
 
 ## ⚙️ Parâmetros de Entrada
 
+### Objetivo de Vida
+
+| Parâmetro | Descrição | Default |
+|-----------|-----------|---------|
+| **Modo** | Preservação (você define SWR) ou Consumo Máximo (sistema calcula SWR) | Preservação |
+| **Confiança Desejada** | Probabilidade mínima de sucesso (apenas modo Consumo) | 90% |
+| **Patrimônio Final Alvo** | Quanto deixar ao final do horizonte (apenas modo Consumo) | R$ 0 |
+| **Tolerância da Busca** | Precisão do otimizador (apenas modo Consumo) | 0.1% |
+
+> **Modo Preservação**: Você define a taxa de saque e observa a probabilidade de sucesso. Ideal para planejamento conservador focado em herança.
+>
+> **Modo Consumo Máximo**: Você define a probabilidade de sucesso desejada e o sistema encontra a maior taxa de saque possível. Filosofia "Die With Zero" — maximizar consumo em vida.
+
 ### Portfólio Inicial
 
 | Parâmetro | Descrição | Valores Típicos |
 |-----------|-----------|-----------------|
 | **Patrimônio Total** | Valor total do portfólio (entrada em USD ou BRL com conversão automática) | $500k - $2M / R$ 2.5M - R$ 10M |
 | **Taxa de Câmbio** | USD/BRL inicial | 4.80 - 6.00 |
-| **Taxa de Retirada (SWR)** | % anual do portfólio inicial | 3.5% - 5.0% |
+| **Taxa de Retirada (SWR)** | % anual do portfólio inicial (modo Preservação) ou calculado automaticamente (modo Consumo) | 3.5% - 5.0% |
 
 > **Nota**: O portfólio total é dividido entre RV e RF conforme o "% RF Inicial" definido na Estratégia Tenda. Todos os campos monetários possuem entrada dual USD/BRL com conversão automática.
 
@@ -262,6 +323,25 @@ A implementação é um **glide path linear** — a alocação de RF decresce li
 ---
 
 ## 📈 Interpretação dos Resultados
+
+### Card: Plano de Consumo Máximo (Modo Consumo)
+
+Exibido apenas no modo Consumo Máximo:
+
+```
+Taxa Ótima: 5.23% (±0.1%)
+Saque Mensal: R$ 24.000
+Saque Anual: R$ 288.000
+Sobrevivência Real: 90.5%
+Patrimônio Final Mediano: R$ 125.000
+```
+
+**O que significa**:
+
+- **Taxa Ótima**: A maior taxa de saque inicial onde a sobrevivência é ≥ confiança desejada
+- **±0.1%**: Margem de precisão da busca (configurável via "Tolerância")
+- **Sobrevivência Real**: Taxa efetiva calculada na validação final (pode ser ligeiramente superior à meta)
+- **Patrimônio Final Mediano**: Metade dos cenários bem-sucedidos termina acima deste valor
 
 ### Card: Taxa de Sobrevivência
 
@@ -382,6 +462,7 @@ A suíte de testes cobre:
 - Reprodutibilidade com seed (PRNG determinístico)
 - Casos extremos
 - Testes de regressão E2E (cenários seeded determinísticos)
+- Otimizador de consumo máximo (bissecção, convergência, limites)
 
 ### Hospedagem no GitHub Pages
 
@@ -398,6 +479,7 @@ A suíte de testes cobre:
 ### Geração de Números Aleatórios
 
 **PRNG Seedável (Mulberry32)**:
+
 ```javascript
 // Algoritmo Mulberry32 - rápido, simples, período 2³²
 state = (state + 0x6D2B79F5) >>> 0
@@ -405,6 +487,7 @@ state = (state + 0x6D2B79F5) >>> 0
 ```
 
 **Box-Muller Transform** para distribuição Normal:
+
 ```javascript
 Z = √(-2 ln U₁) × cos(2π U₂)
 ```
@@ -421,6 +504,7 @@ Onde χ² é soma de df variáveis normais ao quadrado. Note que para df ≤ 2, 
 ### Correlação
 
 Decomposição de Cholesky para gerar variáveis correlacionadas:
+
 ```javascript
 Z₂_correlacionado = ρ × Z₁ + √(1-ρ²) × Z₂
 ```
@@ -441,6 +525,32 @@ Imposto = Saque × Proporção_Ganhos × Alíquota
 
 Onde Proporção_Ganhos cresce com o tempo (mais do portfólio é ganho, menos é principal).
 
+### Otimizador (Método da Bissecção)
+
+O otimizador encontra a taxa de saque ótima via busca binária:
+
+```javascript
+// Pseudocódigo
+low = 0.5%, high = 15%
+while (high - low > tolerance):
+    mid = (low + high) / 2
+    result = runMonteCarlo(mid, iterations)
+    if result.survivalRate >= target:
+        best = mid      // Pode tentar taxa mais alta
+        low = mid
+    else:
+        high = mid      // Precisa taxa mais baixa
+```
+
+A abordagem em duas fases (grossa → fina) reduz o número total de simulações enquanto mantém alta precisão:
+
+- **Fase 1**: ~5 passos × 200 iterações = 1,000 simulações
+- **Fase 2**: ~4 passos × 1,000 iterações = 4,000 simulações
+- **Validação**: 1 × N iterações (configurável)
+- **Total**: ~5,000 + N simulações
+
+> **Seed consistente**: O otimizador usa o mesmo seed mestre em todos os passos da bissecção, garantindo que as comparações entre taxas são justas (mesma sequência de cenários).
+
 ---
 
 ## 📖 Referências Acadêmicas
@@ -454,6 +564,8 @@ Onde Proporção_Ganhos cresce com o tempo (mais do portfólio é ganho, menos �
 4. **Estrada, J. (2017)**. "Maximum Withdrawal Rates: An Empirical and Global Perspective." *Journal of Retirement*.
 
 5. **Pfau, W. D. (2018)**. *How Much Can I Spend in Retirement?* Retirement Researcher Media.
+
+6. **Perkins, B. (2020)**. *Die With Zero: Getting All You Can from Your Money and Your Life*. Houghton Mifflin Harcourt.
 
 ---
 

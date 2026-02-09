@@ -2588,15 +2588,28 @@
                 useSequenceConstraint: false, // OFF by default - pure IID Monte Carlo
                 maxNegativeSequence: 10, // Max consecutive years of negative returns (only if constraint enabled)
                 // Reproducibility
-                seed: null // null = random seed each run, number = deterministic
+                seed: null, // null = random seed each run, number = deterministic
+                // Objective Mode: Maximum Consumption Optimizer
+                objectiveMode: 'preservation', // 'preservation' | 'consumption'
+                targetSuccessRate: 90, // Target survival rate for consumption mode (%)
+                targetEndBalance: 0, // Target end balance in BRL (Die With Zero)
+                optimizerTolerance: 0.1 // Tolerance for bisection search (%)
             });
 
             const [results, setResults] = useState(null);
             const [isRunning, setIsRunning] = useState(false);
             const [progress, setProgress] = useState(0);
+            const [isOptimizing, setIsOptimizing] = useState(false);
+            const [optimizationProgress, setOptimizationProgress] = useState(null);
+            const [optimizationResult, setOptimizationResult] = useState(null);
 
             const updateParam = (key, value) => {
                 setParams(prev => ({ ...prev, [key]: value }));
+                // Clear optimization result when switching modes or changing key params
+                if (key === 'objectiveMode') {
+                    setOptimizationResult(null);
+                    setResults(null);
+                }
             };
 
             const runSimulation = () => {
@@ -2614,6 +2627,162 @@
                     setIsRunning(false);
                     setProgress(100);
                 }, 100);
+            };
+
+            // ============================================
+            // MAXIMUM CONSUMPTION OPTIMIZER (Bisection)
+            // ============================================
+
+            // Helper function to run Monte Carlo with specific SWR
+            const runMonteCarloWithSWR = (swr, iterations, masterSeed) => {
+                const testParams = { ...params, withdrawalRate: swr, seed: masterSeed };
+                const engine = new MonteCarloEngine(testParams);
+                return engine.runMonteCarlo(iterations);
+            };
+
+            // Two-phase bisection search for optimal SWR
+            const findOptimalSWR = async (targetRate, tolerance, onProgress) => {
+                const startTime = Date.now();
+                const masterSeed = params.seed || Math.floor(Math.random() * 2147483647);
+
+                let minSWR = 0.5;
+                let maxSWR = 15.0;
+                let bestSWR = minSWR;
+                let bestResults = null;
+                let totalSteps = 0;
+                let totalSimulations = 0;
+
+                // Phase 1: Coarse search (200 iterations, 0.5% tolerance)
+                const phase1Tolerance = 0.5;
+                const phase1Iterations = 200;
+                let phase1Steps = 0;
+
+                onProgress({ phase: 1, step: 0, minSWR, maxSWR, currentSWR: (minSWR + maxSWR) / 2, survivalRate: null });
+
+                while ((maxSWR - minSWR) > phase1Tolerance) {
+                    const midSWR = (minSWR + maxSWR) / 2;
+                    const results = runMonteCarloWithSWR(midSWR, phase1Iterations, masterSeed);
+                    totalSimulations += phase1Iterations;
+                    phase1Steps++;
+                    totalSteps++;
+
+                    onProgress({
+                        phase: 1,
+                        step: phase1Steps,
+                        minSWR,
+                        maxSWR,
+                        currentSWR: midSWR,
+                        survivalRate: results.survivalRate,
+                        totalSimulations
+                    });
+
+                    if (results.survivalRate >= targetRate) {
+                        // Can try higher SWR
+                        bestSWR = midSWR;
+                        bestResults = results;
+                        minSWR = midSWR;
+                    } else {
+                        // Need lower SWR
+                        maxSWR = midSWR;
+                    }
+
+                    // Allow UI to update
+                    await new Promise(r => setTimeout(r, 10));
+                }
+
+                // Phase 2: Fine search (1000 iterations, user-defined tolerance)
+                const phase2Iterations = 1000;
+                let phase2Steps = 0;
+
+                // Narrow the search range around the coarse result
+                minSWR = Math.max(0.5, bestSWR - 1.0);
+                maxSWR = Math.min(15.0, bestSWR + 1.0);
+
+                onProgress({ phase: 2, step: 0, minSWR, maxSWR, currentSWR: bestSWR, survivalRate: bestResults?.survivalRate, totalSimulations });
+
+                while ((maxSWR - minSWR) > tolerance) {
+                    const midSWR = (minSWR + maxSWR) / 2;
+                    const results = runMonteCarloWithSWR(midSWR, phase2Iterations, masterSeed);
+                    totalSimulations += phase2Iterations;
+                    phase2Steps++;
+                    totalSteps++;
+
+                    onProgress({
+                        phase: 2,
+                        step: phase2Steps,
+                        minSWR,
+                        maxSWR,
+                        currentSWR: midSWR,
+                        survivalRate: results.survivalRate,
+                        totalSimulations
+                    });
+
+                    if (results.survivalRate >= targetRate) {
+                        bestSWR = midSWR;
+                        bestResults = results;
+                        minSWR = midSWR;
+                    } else {
+                        maxSWR = midSWR;
+                    }
+
+                    await new Promise(r => setTimeout(r, 10));
+                }
+
+                // Final validation run with full iterations
+                const finalResults = runMonteCarloWithSWR(bestSWR, params.iterations, masterSeed);
+                totalSimulations += params.iterations;
+                finalResults.seed = masterSeed;
+                finalResults.mode = params.useSequenceConstraint ? 'constrained' : 'pure_iid';
+
+                const computeTimeMs = Date.now() - startTime;
+
+                return {
+                    optimalSWR: bestSWR,
+                    survivalRate: finalResults.survivalRate,
+                    medianEndBalance: finalResults.medianFinalPortfolio,
+                    monthlyWithdrawalBRL: (params.initialPortfolioUSD * params.initialFX) * (bestSWR / 100) / 12,
+                    annualWithdrawalBRL: (params.initialPortfolioUSD * params.initialFX) * (bestSWR / 100),
+                    confidenceInterval: [Math.max(0.5, bestSWR - tolerance), Math.min(15, bestSWR + tolerance)],
+                    searchSteps: totalSteps,
+                    totalSimulations,
+                    computeTimeMs,
+                    masterSeed,
+                    finalResults
+                };
+            };
+
+            const runOptimization = async () => {
+                setIsOptimizing(true);
+                setOptimizationProgress({ phase: 0, step: 0, message: 'Iniciando otimização...' });
+                setOptimizationResult(null);
+                setResults(null);
+
+                try {
+                    const result = await findOptimalSWR(
+                        params.targetSuccessRate,
+                        params.optimizerTolerance,
+                        (progress) => {
+                            setOptimizationProgress({
+                                ...progress,
+                                message: progress.phase === 1
+                                    ? `Fase 1 (busca grossa): Testando ${progress.currentSWR?.toFixed(2)}% → ${progress.survivalRate?.toFixed(1) || '...'}% sobrevivência`
+                                    : `Fase 2 (busca fina): Refinando ${progress.currentSWR?.toFixed(2)}% → ${progress.survivalRate?.toFixed(1) || '...'}% sobrevivência`
+                            });
+                        }
+                    );
+
+                    setOptimizationResult(result);
+                    setResults(result.finalResults);
+
+                    // Update the withdrawalRate param to show the optimal value
+                    updateParam('withdrawalRate', parseFloat(result.optimalSWR.toFixed(2)));
+
+                } catch (error) {
+                    console.error('Optimization error:', error);
+                    setOptimizationProgress({ phase: -1, message: `Erro: ${error.message}` });
+                }
+
+                setIsOptimizing(false);
             };
 
             const formatCurrency = (value, decimals = 0) => {
@@ -2634,6 +2803,53 @@
                                 <h1 className="text-xl font-bold">Monte Carlo</h1>
                             </div>
                             <p className="text-xs text-gray-500">Simulador de Aposentadoria SWR</p>
+                        </div>
+
+                        {/* Objective Mode Selector */}
+                        <div className="mb-6">
+                            <h2 className="text-sm font-semibold text-gray-300 mb-3 flex items-center gap-2">
+                                <Icon name="Target" size={16} />
+                                Objetivo de Vida
+                                <Tooltip text="Escolha entre duas filosofias: (1) Preservação - você define a taxa de saque e vê a probabilidade de sucesso. (2) Consumo Máximo (Die With Zero) - você define a probabilidade de sucesso desejada e o sistema calcula a maior taxa de saque possível." />
+                            </h2>
+                            <div className="flex gap-2 p-1 bg-midnight rounded-lg">
+                                <button
+                                    onClick={() => updateParam('objectiveMode', 'preservation')}
+                                    className={`flex-1 py-2 px-3 rounded-md text-xs font-medium transition-all flex items-center justify-center gap-1.5 ${
+                                        params.objectiveMode === 'preservation'
+                                            ? 'bg-accent text-white'
+                                            : 'text-gray-400 hover:text-white hover:bg-surface'
+                                    }`}
+                                >
+                                    <Icon name="Shield" size={14} />
+                                    Preservação
+                                </button>
+                                <button
+                                    onClick={() => updateParam('objectiveMode', 'consumption')}
+                                    className={`flex-1 py-2 px-3 rounded-md text-xs font-medium transition-all flex items-center justify-center gap-1.5 ${
+                                        params.objectiveMode === 'consumption'
+                                            ? 'bg-warning text-white'
+                                            : 'text-gray-400 hover:text-white hover:bg-surface'
+                                    }`}
+                                >
+                                    <Icon name="Sparkles" size={14} />
+                                    Consumo Máximo
+                                </button>
+                            </div>
+                            <div className="text-xs text-gray-500 mt-2 p-2 bg-midnight rounded">
+                                {params.objectiveMode === 'preservation' ? (
+                                    <span>
+                                        <strong className="text-accent">Modo Preservação:</strong> Você define a taxa de saque (SWR)
+                                        e o simulador calcula a probabilidade de sucesso. Ideal para planejamento conservador focado em deixar herança.
+                                    </span>
+                                ) : (
+                                    <span>
+                                        <strong className="text-warning">Modo Consumo Máximo:</strong> Você define a probabilidade
+                                        de sucesso desejada e o sistema encontra a maior taxa de saque possível.
+                                        Filosofia "Die With Zero" - maximizar consumo em vida.
+                                    </span>
+                                )}
+                            </div>
                         </div>
 
                         {/* Portfolio Section */}
@@ -2661,17 +2877,82 @@
                                 step={0.1}
                                 tooltip="Taxa de câmbio atual (quantos reais por dólar). Este valor serve como ponto de partida e também como 'âncora' para o modelo de reversão à média do câmbio. Durante a simulação, o câmbio varia de forma estocástica mas tende a retornar a este valor no longo prazo."
                             />
-                            <Input
-                                label="Taxa de Retirada (SWR)"
-                                value={params.withdrawalRate}
-                                onChange={(v) => updateParam('withdrawalRate', v)}
-                                unit="%"
-                                min={2}
-                                max={8}
-                                step={0.1}
-                                tooltip="Safe Withdrawal Rate - percentual do portfólio total retirado no primeiro ano, ajustado pela inflação nos anos seguintes. O estudo original de Bengen (1994) sugeriu 4%, mas foi revisado para 4.7% em 2006 considerando diversificação internacional. Taxas mais altas aumentam o risco de depleção; mais baixas deixam mais herança."
-                            />
+                            {params.objectiveMode === 'preservation' ? (
+                                <Input
+                                    label="Taxa de Retirada (SWR)"
+                                    value={params.withdrawalRate}
+                                    onChange={(v) => updateParam('withdrawalRate', v)}
+                                    unit="%"
+                                    min={2}
+                                    max={8}
+                                    step={0.1}
+                                    tooltip="Safe Withdrawal Rate - percentual do portfólio total retirado no primeiro ano, ajustado pela inflação nos anos seguintes. O estudo original de Bengen (1994) sugeriu 4%, mas foi revisado para 4.7% em 2006 considerando diversificação internacional. Taxas mais altas aumentam o risco de depleção; mais baixas deixam mais herança."
+                                />
+                            ) : (
+                                <div className="mb-3">
+                                    <div className="flex items-center gap-2 mb-2">
+                                        <label className="text-xs text-warning font-medium uppercase tracking-wide">
+                                            Taxa de Retirada (SWR)
+                                        </label>
+                                        <span className="text-xs px-2 py-0.5 bg-warning/20 text-warning rounded">Auto</span>
+                                    </div>
+                                    <div className="bg-midnight border border-warning/30 rounded-lg px-3 py-2 text-sm font-mono text-warning">
+                                        {optimizationResult
+                                            ? `${optimizationResult.optimalSWR.toFixed(2)}%`
+                                            : 'Será calculado automaticamente'
+                                        }
+                                    </div>
+                                    <div className="text-xs text-gray-500 mt-1">
+                                        O sistema encontrará a maior taxa com ≥{params.targetSuccessRate}% de sucesso
+                                    </div>
+                                </div>
+                            )}
                         </div>
+
+                        {/* Consumption Mode Parameters */}
+                        {params.objectiveMode === 'consumption' && (
+                            <div className="mb-6 p-3 bg-warning/5 border border-warning/30 rounded-lg">
+                                <h2 className="text-sm font-semibold text-warning mb-3 flex items-center gap-2">
+                                    <Icon name="Sliders" size={16} />
+                                    Parâmetros de Otimização
+                                </h2>
+                                <Input
+                                    label="Confiança Desejada"
+                                    value={params.targetSuccessRate}
+                                    onChange={(v) => updateParam('targetSuccessRate', v)}
+                                    unit="%"
+                                    min={70}
+                                    max={99}
+                                    step={1}
+                                    tooltip="Probabilidade mínima de sucesso que você deseja. O otimizador encontrará a MAIOR taxa de saque onde a taxa de sobrevivência ainda é ≥ este valor. Ex: 90% significa que você aceita 10% de chance de o dinheiro acabar antes do horizonte."
+                                />
+                                <BRLInputWithUSD
+                                    label="Patrimônio Final Desejado"
+                                    valueBRL={params.targetEndBalance}
+                                    onChange={(v) => updateParam('targetEndBalance', v)}
+                                    fx={params.initialFX}
+                                    min={0}
+                                    step={100000}
+                                    tooltip="Quanto você deseja deixar ao final do horizonte (filosofia Die With Zero = R$ 0). Este valor é usado como referência - a mediana dos cenários bem-sucedidos tenderá a este valor. Zero significa maximizar consumo sem deixar herança."
+                                />
+                                <Input
+                                    label="Tolerância da Busca"
+                                    value={params.optimizerTolerance}
+                                    onChange={(v) => updateParam('optimizerTolerance', v)}
+                                    unit="%"
+                                    min={0.05}
+                                    max={0.5}
+                                    step={0.05}
+                                    tooltip="Precisão da busca da taxa ótima. Valores menores = resultado mais preciso, mas mais demorado. 0.1% é um bom equilíbrio. Com 0.1%, o resultado será tipo '4.73% ± 0.1%'."
+                                />
+                                <div className="text-xs text-gray-500 mt-2 p-2 bg-midnight rounded">
+                                    <div className="font-semibold text-warning mb-1">Como funciona:</div>
+                                    <div>1. Busca grossa: testa taxas de 0.5% a 15% (rápido)</div>
+                                    <div>2. Busca fina: refina ao redor do melhor resultado</div>
+                                    <div>3. Validação final: confirma com {params.iterations} simulações</div>
+                                </div>
+                            </div>
+                        )}
 
                         {/* Returns Section */}
                         <div className="mb-6">
@@ -3106,31 +3387,86 @@
                         </div>
 
                         {/* Run Button */}
-                        <button
-                            onClick={runSimulation}
-                            disabled={isRunning}
-                            className={`w-full py-3 rounded-xl font-semibold text-sm flex items-center justify-center gap-2
-                                ${isRunning 
-                                    ? 'bg-gray-700 text-gray-400 cursor-not-allowed' 
-                                    : 'bg-gradient-to-r from-accent to-accent-dim hover:opacity-90 text-white'
-                                } transition-all`}
-                        >
-                            {isRunning ? (
-                                <>
-                                    <div className="w-4 h-4 border-2 border-gray-400 border-t-transparent rounded-full animate-spin" />
-                                    Simulando...
-                                </>
-                            ) : (
-                                <>
-                                    <Icon name="Sparkles" size={18} />
-                                    Executar Simulação
-                                </>
-                            )}
-                        </button>
+                        {params.objectiveMode === 'preservation' ? (
+                            <button
+                                onClick={runSimulation}
+                                disabled={isRunning || isOptimizing}
+                                className={`w-full py-3 rounded-xl font-semibold text-sm flex items-center justify-center gap-2
+                                    ${isRunning || isOptimizing
+                                        ? 'bg-gray-700 text-gray-400 cursor-not-allowed'
+                                        : 'bg-gradient-to-r from-accent to-accent-dim hover:opacity-90 text-white'
+                                    } transition-all`}
+                            >
+                                {isRunning ? (
+                                    <>
+                                        <div className="w-4 h-4 border-2 border-gray-400 border-t-transparent rounded-full animate-spin" />
+                                        Simulando...
+                                    </>
+                                ) : (
+                                    <>
+                                        <Icon name="Play" size={18} />
+                                        Executar Simulação
+                                    </>
+                                )}
+                            </button>
+                        ) : (
+                            <button
+                                onClick={runOptimization}
+                                disabled={isRunning || isOptimizing}
+                                className={`w-full py-3 rounded-xl font-semibold text-sm flex items-center justify-center gap-2
+                                    ${isRunning || isOptimizing
+                                        ? 'bg-gray-700 text-gray-400 cursor-not-allowed'
+                                        : 'bg-gradient-to-r from-warning to-orange-600 hover:opacity-90 text-white'
+                                    } transition-all`}
+                            >
+                                {isOptimizing ? (
+                                    <>
+                                        <div className="w-4 h-4 border-2 border-gray-400 border-t-transparent rounded-full animate-spin" />
+                                        Otimizando...
+                                    </>
+                                ) : (
+                                    <>
+                                        <Icon name="Sparkles" size={18} />
+                                        Calcular Saque Ótimo
+                                    </>
+                                )}
+                            </button>
+                        )}
+
+                        {/* Optimization Progress */}
+                        {isOptimizing && optimizationProgress && (
+                            <div className="mt-3 p-3 bg-warning/10 border border-warning/30 rounded-lg">
+                                <div className="flex items-center gap-2 mb-2">
+                                    <div className="w-3 h-3 border-2 border-warning border-t-transparent rounded-full animate-spin" />
+                                    <span className="text-xs font-medium text-warning">
+                                        Fase {optimizationProgress.phase}/2
+                                    </span>
+                                </div>
+                                <div className="text-xs text-gray-400 mb-2">
+                                    {optimizationProgress.message}
+                                </div>
+                                <div className="w-full bg-midnight rounded-full h-1.5">
+                                    <div
+                                        className="bg-warning h-1.5 rounded-full transition-all duration-300"
+                                        style={{
+                                            width: `${optimizationProgress.phase === 1
+                                                ? Math.min(optimizationProgress.step * 10, 50)
+                                                : 50 + Math.min(optimizationProgress.step * 10, 50)
+                                            }%`
+                                        }}
+                                    />
+                                </div>
+                                <div className="text-xs text-gray-500 mt-1">
+                                    {optimizationProgress.totalSimulations?.toLocaleString() || 0} simulações executadas
+                                </div>
+                            </div>
+                        )}
 
                         {/* Initial values display */}
                         <div className="mt-4 p-3 bg-midnight rounded-lg border border-gray-800">
-                            <div className="text-xs text-gray-500 mb-2">Valores Iniciais Calculados</div>
+                            <div className="text-xs text-gray-500 mb-2">
+                                {params.objectiveMode === 'preservation' ? 'Valores Iniciais Calculados' : 'Configuração para Otimização'}
+                            </div>
                             <div className="space-y-1 text-xs">
                                 <div className="flex justify-between">
                                     <span className="text-gray-400">Portfólio Total:</span>
@@ -3150,18 +3486,53 @@
                                         {formatCurrency(params.initialPortfolioUSD * params.initialFX * (params.tentInitialBondPercent / 100))}
                                     </span>
                                 </div>
-                                <div className="flex justify-between pt-1 border-t border-gray-800 mt-1">
-                                    <span className="text-gray-400">Saque Anual:</span>
-                                    <span className="font-mono text-info">
-                                        {formatCurrency(params.initialPortfolioUSD * (params.withdrawalRate / 100) * params.initialFX)}
-                                    </span>
-                                </div>
-                                <div className="flex justify-between">
-                                    <span className="text-gray-400">Saque Mensal:</span>
-                                    <span className="font-mono text-info">
-                                        {formatCurrency(params.initialPortfolioUSD * (params.withdrawalRate / 100) * params.initialFX / 12)}
-                                    </span>
-                                </div>
+                                {params.objectiveMode === 'preservation' ? (
+                                    <>
+                                        <div className="flex justify-between pt-1 border-t border-gray-800 mt-1">
+                                            <span className="text-gray-400">Saque Anual:</span>
+                                            <span className="font-mono text-info">
+                                                {formatCurrency(params.initialPortfolioUSD * (params.withdrawalRate / 100) * params.initialFX)}
+                                            </span>
+                                        </div>
+                                        <div className="flex justify-between">
+                                            <span className="text-gray-400">Saque Mensal:</span>
+                                            <span className="font-mono text-info">
+                                                {formatCurrency(params.initialPortfolioUSD * (params.withdrawalRate / 100) * params.initialFX / 12)}
+                                            </span>
+                                        </div>
+                                    </>
+                                ) : (
+                                    <>
+                                        <div className="flex justify-between pt-1 border-t border-gray-800 mt-1">
+                                            <span className="text-gray-400">Confiança Alvo:</span>
+                                            <span className="font-mono text-warning">
+                                                {params.targetSuccessRate}%
+                                            </span>
+                                        </div>
+                                        <div className="flex justify-between">
+                                            <span className="text-gray-400">Patrimônio Final Alvo:</span>
+                                            <span className="font-mono text-warning">
+                                                {params.targetEndBalance === 0 ? 'Zero (Die With Zero)' : formatCurrency(params.targetEndBalance)}
+                                            </span>
+                                        </div>
+                                        {optimizationResult && (
+                                            <>
+                                                <div className="flex justify-between pt-1 border-t border-warning/30 mt-1">
+                                                    <span className="text-warning">Taxa Ótima:</span>
+                                                    <span className="font-mono text-warning font-semibold">
+                                                        {optimizationResult.optimalSWR.toFixed(2)}%
+                                                    </span>
+                                                </div>
+                                                <div className="flex justify-between">
+                                                    <span className="text-warning">Saque Mensal:</span>
+                                                    <span className="font-mono text-warning font-semibold">
+                                                        {formatCurrency(optimizationResult.monthlyWithdrawalBRL)}
+                                                    </span>
+                                                </div>
+                                            </>
+                                        )}
+                                    </>
+                                )}
                                 {params.useMinimumWithdrawal && (
                                     <div className="flex justify-between pt-1 border-t border-gray-800 mt-1">
                                         <span className="text-gray-400">Mínimo Aceitável:</span>
@@ -3187,41 +3558,161 @@
                         {!results ? (
                             <div className="flex justify-center pt-10">
                                 <div className="text-center max-w-md">
-                                    <div className="w-20 h-20 mx-auto mb-6 rounded-2xl bg-surface flex items-center justify-center">
-                                        <Icon name="LineChart" size={40} className="text-accent" />
+                                    <div className={`w-20 h-20 mx-auto mb-6 rounded-2xl flex items-center justify-center ${
+                                        params.objectiveMode === 'consumption' ? 'bg-warning/20' : 'bg-surface'
+                                    }`}>
+                                        <Icon
+                                            name={params.objectiveMode === 'consumption' ? 'Sparkles' : 'LineChart'}
+                                            size={40}
+                                            className={params.objectiveMode === 'consumption' ? 'text-warning' : 'text-accent'}
+                                        />
                                     </div>
-                                    <h2 className="text-2xl font-bold mb-3">Simulador Monte Carlo</h2>
+                                    <h2 className="text-2xl font-bold mb-3">
+                                        {params.objectiveMode === 'consumption'
+                                            ? 'Otimizador de Consumo Máximo'
+                                            : 'Simulador Monte Carlo'
+                                        }
+                                    </h2>
                                     <p className="text-gray-400 mb-6">
-                                        Configure os parâmetros na barra lateral e execute a simulação 
-                                        para visualizar os cenários de aposentadoria baseados na estratégia 
-                                        Safe Withdrawal Rate com as regras de Guyton-Klinger.
+                                        {params.objectiveMode === 'consumption' ? (
+                                            <>
+                                                Clique em <strong className="text-warning">"Calcular Saque Ótimo"</strong> para
+                                                descobrir a maior taxa de saque que atinge {params.targetSuccessRate}% de probabilidade
+                                                de sucesso em {params.years} anos. Filosofia "Die With Zero".
+                                            </>
+                                        ) : (
+                                            <>
+                                                Configure os parâmetros na barra lateral e execute a simulação
+                                                para visualizar os cenários de aposentadoria baseados na estratégia
+                                                Safe Withdrawal Rate com as regras de Guyton-Klinger.
+                                            </>
+                                        )}
                                     </p>
                                     <div className="grid grid-cols-2 gap-3 text-left">
-                                        <div className="p-3 bg-surface rounded-lg border border-gray-800">
-                                            <Icon name="Shield" size={18} className="text-accent mb-2" />
-                                            <div className="text-sm font-medium">Estratégia Tenda</div>
-                                            <div className="text-xs text-gray-500">Proteção nos primeiros anos</div>
-                                        </div>
-                                        <div className="p-3 bg-surface rounded-lg border border-gray-800">
-                                            <Icon name="ArrowUpDown" size={18} className="text-info mb-2" />
-                                            <div className="text-sm font-medium">Guyton-Klinger</div>
-                                            <div className="text-xs text-gray-500">Ajustes dinâmicos</div>
-                                        </div>
-                                        <div className="p-3 bg-surface rounded-lg border border-gray-800">
-                                            <Icon name="DollarSign" size={18} className="text-warning mb-2" />
-                                            <div className="text-sm font-medium">Câmbio Dinâmico</div>
-                                            <div className="text-xs text-gray-500">Correlação USD/BRL</div>
-                                        </div>
-                                        <div className="p-3 bg-surface rounded-lg border border-gray-800">
-                                            <Icon name="Target" size={18} className="text-danger mb-2" />
-                                            <div className="text-sm font-medium">Taxa Sobrevivência</div>
-                                            <div className="text-xs text-gray-500">Análise de cenários</div>
-                                        </div>
+                                        {params.objectiveMode === 'consumption' ? (
+                                            <>
+                                                <div className="p-3 bg-warning/10 rounded-lg border border-warning/30">
+                                                    <Icon name="Search" size={18} className="text-warning mb-2" />
+                                                    <div className="text-sm font-medium">Busca Inteligente</div>
+                                                    <div className="text-xs text-gray-500">Bissecção em duas fases</div>
+                                                </div>
+                                                <div className="p-3 bg-warning/10 rounded-lg border border-warning/30">
+                                                    <Icon name="Target" size={18} className="text-warning mb-2" />
+                                                    <div className="text-sm font-medium">{params.targetSuccessRate}% Confiança</div>
+                                                    <div className="text-xs text-gray-500">Probabilidade de sucesso</div>
+                                                </div>
+                                                <div className="p-3 bg-warning/10 rounded-lg border border-warning/30">
+                                                    <Icon name="TrendingUp" size={18} className="text-warning mb-2" />
+                                                    <div className="text-sm font-medium">Maximizar Consumo</div>
+                                                    <div className="text-xs text-gray-500">Maior saque possível</div>
+                                                </div>
+                                                <div className="p-3 bg-warning/10 rounded-lg border border-warning/30">
+                                                    <Icon name="Zap" size={18} className="text-warning mb-2" />
+                                                    <div className="text-sm font-medium">Die With Zero</div>
+                                                    <div className="text-xs text-gray-500">Aproveitar a vida ao máximo</div>
+                                                </div>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <div className="p-3 bg-surface rounded-lg border border-gray-800">
+                                                    <Icon name="Shield" size={18} className="text-accent mb-2" />
+                                                    <div className="text-sm font-medium">Estratégia Tenda</div>
+                                                    <div className="text-xs text-gray-500">Proteção nos primeiros anos</div>
+                                                </div>
+                                                <div className="p-3 bg-surface rounded-lg border border-gray-800">
+                                                    <Icon name="ArrowUpDown" size={18} className="text-info mb-2" />
+                                                    <div className="text-sm font-medium">Guyton-Klinger</div>
+                                                    <div className="text-xs text-gray-500">Ajustes dinâmicos</div>
+                                                </div>
+                                                <div className="p-3 bg-surface rounded-lg border border-gray-800">
+                                                    <Icon name="DollarSign" size={18} className="text-warning mb-2" />
+                                                    <div className="text-sm font-medium">Câmbio Dinâmico</div>
+                                                    <div className="text-xs text-gray-500">Correlação USD/BRL</div>
+                                                </div>
+                                                <div className="p-3 bg-surface rounded-lg border border-gray-800">
+                                                    <Icon name="Target" size={18} className="text-danger mb-2" />
+                                                    <div className="text-sm font-medium">Taxa Sobrevivência</div>
+                                                    <div className="text-xs text-gray-500">Análise de cenários</div>
+                                                </div>
+                                            </>
+                                        )}
                                     </div>
                                 </div>
                             </div>
                         ) : (
                             <div className="fade-in space-y-6">
+                                {/* Optimization Result Card (Consumption Mode) */}
+                                {params.objectiveMode === 'consumption' && optimizationResult && (
+                                    <div className="bg-gradient-to-r from-warning/20 to-orange-600/20 rounded-xl p-5 border border-warning/40">
+                                        <div className="flex items-start justify-between mb-4">
+                                            <div className="flex items-center gap-3">
+                                                <div className="w-12 h-12 rounded-xl bg-warning/20 flex items-center justify-center">
+                                                    <Icon name="Sparkles" size={24} className="text-warning" />
+                                                </div>
+                                                <div>
+                                                    <h3 className="font-bold text-lg text-warning">Plano de Consumo Máximo</h3>
+                                                    <p className="text-xs text-gray-400">
+                                                        Com {params.targetSuccessRate}% de confiança por {params.years} anos
+                                                    </p>
+                                                </div>
+                                            </div>
+                                            <div className="text-right">
+                                                <div className="text-xs text-gray-500">Taxa Ótima</div>
+                                                <div className="text-2xl font-bold font-mono text-warning">
+                                                    {optimizationResult.optimalSWR.toFixed(2)}%
+                                                </div>
+                                                <div className="text-xs text-gray-500">
+                                                    ±{params.optimizerTolerance}%
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div className="grid grid-cols-3 gap-4 mb-4">
+                                            <div className="bg-midnight/50 rounded-lg p-3 text-center">
+                                                <div className="text-xs text-gray-500 mb-1">Saque Mensal</div>
+                                                <div className="text-xl font-bold font-mono text-white">
+                                                    {formatCurrency(optimizationResult.monthlyWithdrawalBRL)}
+                                                </div>
+                                            </div>
+                                            <div className="bg-midnight/50 rounded-lg p-3 text-center">
+                                                <div className="text-xs text-gray-500 mb-1">Saque Anual</div>
+                                                <div className="text-xl font-bold font-mono text-white">
+                                                    {formatCurrency(optimizationResult.annualWithdrawalBRL)}
+                                                </div>
+                                            </div>
+                                            <div className="bg-midnight/50 rounded-lg p-3 text-center">
+                                                <div className="text-xs text-gray-500 mb-1">Sobrevivência Real</div>
+                                                <div className="text-xl font-bold font-mono text-accent">
+                                                    {optimizationResult.survivalRate.toFixed(1)}%
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div className="flex items-center justify-between text-xs text-gray-500 border-t border-warning/20 pt-3">
+                                            <div className="flex items-center gap-4">
+                                                <span>Patrimônio Final Mediano: <span className="text-white font-mono">{formatCurrency(optimizationResult.medianEndBalance)}</span></span>
+                                                {params.targetEndBalance > 0 && (
+                                                    <span className="text-gray-600">| Meta: {formatCurrency(params.targetEndBalance)}</span>
+                                                )}
+                                            </div>
+                                            <div className="flex items-center gap-3">
+                                                <span>{optimizationResult.searchSteps} passos</span>
+                                                <span>{(optimizationResult.totalSimulations / 1000).toFixed(1)}k simulações</span>
+                                                <span>{(optimizationResult.computeTimeMs / 1000).toFixed(1)}s</span>
+                                            </div>
+                                        </div>
+
+                                        <div className="mt-4 p-3 bg-midnight/50 rounded-lg text-sm text-gray-300">
+                                            <Icon name="Info" size={14} className="inline mr-2 text-warning" />
+                                            <strong>Interpretação:</strong> Para {params.targetSuccessRate}% de chance de não faltar dinheiro em {params.years} anos,
+                                            usando as regras de Guyton-Klinger, você pode sacar inicialmente{' '}
+                                            <strong className="text-warning">{formatCurrency(optimizationResult.monthlyWithdrawalBRL)}/mês</strong> (taxa de{' '}
+                                            <strong className="text-warning">{optimizationResult.optimalSWR.toFixed(2)}%</strong>).
+                                            {params.targetEndBalance === 0 && ' Esta é a filosofia "Die With Zero" - maximizar consumo em vida.'}
+                                        </div>
+                                    </div>
+                                )}
+
                                 {/* Reproducibility Info Bar */}
                                 <div className="flex items-center justify-between p-3 bg-surface rounded-lg border border-gray-800 text-xs">
                                     <div className="flex items-center gap-4">
@@ -3234,6 +3725,14 @@
                                         <span className="text-gray-400">
                                             Seed: <span className="font-mono text-info">{results.seed}</span>
                                         </span>
+                                        {params.objectiveMode === 'consumption' && (
+                                            <>
+                                                <span className="text-gray-600">|</span>
+                                                <span className="text-gray-400">
+                                                    Objetivo: <span className="text-warning font-semibold">Consumo Máximo</span>
+                                                </span>
+                                            </>
+                                        )}
                                     </div>
                                     <button
                                         onClick={() => {
