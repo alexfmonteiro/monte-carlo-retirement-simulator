@@ -283,8 +283,18 @@
             // IMPORTANT: Rules are MUTUALLY EXCLUSIVE - only one adjustment rule can apply per year
             // Priority: 1) Inflation skip (if enabled), 2) Preservation (portfolio stress), 3) Prosperity (portfolio growth)
             applyGuytonKlinger(currentWithdrawal, portfolioValue, initialWithdrawalRate, previousReturn, inflation) {
+                const { useGuytonKlinger, preservationThreshold, prosperityThreshold, adjustmentPercent, applyInflationRule } = this.params;
+
+                // If GK disabled, just apply flat inflation adjustment
+                if (!useGuytonKlinger) {
+                    return {
+                        withdrawal: currentWithdrawal * (1 + inflation),
+                        ruleApplied: null,
+                        inflationApplied: true
+                    };
+                }
+
                 const currentRate = currentWithdrawal / portfolioValue;
-                const { preservationThreshold, prosperityThreshold, adjustmentPercent, applyInflationRule } = this.params;
 
                 let newWithdrawal = currentWithdrawal;
                 let ruleApplied = null;
@@ -2561,6 +2571,7 @@
                 tentInitialBondPercent: 35,
                 tentDuration: 5,
                 targetBondPercent: 20,
+                useGuytonKlinger: true,
                 preservationThreshold: 0.20,
                 prosperityThreshold: 0.20,
                 adjustmentPercent: 0.10,
@@ -2837,10 +2848,13 @@
                     `  Alocação Alvo RF: ${params.targetBondPercent}%`,
                     '',
                     'Regras Guyton-Klinger:',
-                    `  Limiar Preservação: ${(params.preservationThreshold * 100).toFixed(0)}%`,
-                    `  Limiar Prosperidade: ${(params.prosperityThreshold * 100).toFixed(0)}%`,
-                    `  Ajuste: ${(params.adjustmentPercent * 100).toFixed(0)}%`,
-                    `  Regra de Inflação: ${params.applyInflationRule ? 'Sim' : 'Não'}`,
+                    `  Ativado: ${params.useGuytonKlinger ? 'Sim' : 'Não'}`,
+                    ...(params.useGuytonKlinger ? [
+                        `  Limiar Preservação: ${(params.preservationThreshold * 100).toFixed(0)}%`,
+                        `  Limiar Prosperidade: ${(params.prosperityThreshold * 100).toFixed(0)}%`,
+                        `  Ajuste: ${(params.adjustmentPercent * 100).toFixed(0)}%`,
+                        `  Regra de Inflação: ${params.applyInflationRule ? 'Sim' : 'Não'}`,
+                    ] : []),
                     '',
                     'Saque Mínimo:',
                     `  Usar Saque Mínimo: ${params.useMinimumWithdrawal ? 'Sim' : 'Não'}`,
@@ -3204,47 +3218,66 @@
                             </h2>
                             <div className="mb-2">
                                 <Toggle
-                                    label="Regra da Inflação"
-                                    checked={params.applyInflationRule}
-                                    onChange={(v) => updateParam('applyInflationRule', v)}
+                                    label="Ativar Guyton-Klinger"
+                                    checked={params.useGuytonKlinger}
+                                    onChange={(v) => updateParam('useGuytonKlinger', v)}
                                 />
                                 <div className="text-xs text-gray-600 -mt-2 mb-2">
-                                    Pula ajuste inflacionário após anos de retorno negativo
+                                    Ajusta saques dinamicamente conforme desempenho do portfólio
                                 </div>
                             </div>
-                            <Input
-                                label="Gatilho Preservation"
-                                value={params.preservationThreshold * 100}
-                                onChange={(v) => updateParam('preservationThreshold', v / 100)}
-                                unit="%"
-                                min={5}
-                                max={50}
-                                step={5}
-                                tooltip="REGRA DE PRESERVAÇÃO: Quando o portfólio cai, a taxa de retirada atual (saque ÷ portfólio) sobe. Se esta taxa ultrapassar a taxa inicial em mais de X%, o saque é REDUZIDO. Exemplo: taxa inicial 4.7%, gatilho 20%. Se taxa atual > 5.64% (4.7% × 1.2), reduz o saque. Protege o portfólio em bear markets."
-                            />
-                            <Input
-                                label="Gatilho Prosperity"
-                                value={params.prosperityThreshold * 100}
-                                onChange={(v) => updateParam('prosperityThreshold', v / 100)}
-                                unit="%"
-                                min={5}
-                                max={50}
-                                step={5}
-                                tooltip="REGRA DE PROSPERIDADE: Quando o portfólio sobe, a taxa de retirada atual cai. Se esta taxa ficar abaixo da taxa inicial em mais de X%, o saque é AUMENTADO. Exemplo: taxa inicial 4.7%, gatilho 20%. Se taxa atual < 3.76% (4.7% × 0.8), aumenta o saque. Permite aproveitar bull markets."
-                            />
-                            <Input
-                                label="Ajuste Percentual"
-                                value={params.adjustmentPercent * 100}
-                                onChange={(v) => updateParam('adjustmentPercent', v / 100)}
-                                unit="%"
-                                min={5}
-                                max={25}
-                                step={5}
-                                tooltip="Magnitude do ajuste quando os gatilhos são ativados. Se 10%, o saque é reduzido/aumentado em 10% do valor atual. Valores típicos: 10% (moderado) a 15% (agressivo). Ajustes maiores protegem mais o portfólio mas causam maior variação no padrão de vida."
-                            />
-                            <div className="text-xs text-gray-500 mb-3 p-2 bg-midnight rounded">
-                                <strong>Resumo G-K:</strong> Taxa inicial {params.withdrawalRate}% → Gatilhos em {(params.withdrawalRate * (1 + params.preservationThreshold)).toFixed(1)}% (↓) e {(params.withdrawalRate * (1 - params.prosperityThreshold)).toFixed(1)}% (↑) → Ajuste de ±{(params.adjustmentPercent * 100).toFixed(0)}%
-                            </div>
+                            {params.useGuytonKlinger && (
+                                <>
+                                    <div className="mb-2">
+                                        <Toggle
+                                            label="Regra da Inflação"
+                                            checked={params.applyInflationRule}
+                                            onChange={(v) => updateParam('applyInflationRule', v)}
+                                        />
+                                        <div className="text-xs text-gray-600 -mt-2 mb-2">
+                                            Pula ajuste inflacionário após anos de retorno negativo
+                                        </div>
+                                    </div>
+                                    <Input
+                                        label="Gatilho Preservation"
+                                        value={params.preservationThreshold * 100}
+                                        onChange={(v) => updateParam('preservationThreshold', v / 100)}
+                                        unit="%"
+                                        min={5}
+                                        max={50}
+                                        step={5}
+                                        tooltip="REGRA DE PRESERVAÇÃO: Quando o portfólio cai, a taxa de retirada atual (saque ÷ portfólio) sobe. Se esta taxa ultrapassar a taxa inicial em mais de X%, o saque é REDUZIDO. Exemplo: taxa inicial 4.7%, gatilho 20%. Se taxa atual > 5.64% (4.7% × 1.2), reduz o saque. Protege o portfólio em bear markets."
+                                    />
+                                    <Input
+                                        label="Gatilho Prosperity"
+                                        value={params.prosperityThreshold * 100}
+                                        onChange={(v) => updateParam('prosperityThreshold', v / 100)}
+                                        unit="%"
+                                        min={5}
+                                        max={50}
+                                        step={5}
+                                        tooltip="REGRA DE PROSPERIDADE: Quando o portfólio sobe, a taxa de retirada atual cai. Se esta taxa ficar abaixo da taxa inicial em mais de X%, o saque é AUMENTADO. Exemplo: taxa inicial 4.7%, gatilho 20%. Se taxa atual < 3.76% (4.7% × 0.8), aumenta o saque. Permite aproveitar bull markets."
+                                    />
+                                    <Input
+                                        label="Ajuste Percentual"
+                                        value={params.adjustmentPercent * 100}
+                                        onChange={(v) => updateParam('adjustmentPercent', v / 100)}
+                                        unit="%"
+                                        min={5}
+                                        max={25}
+                                        step={5}
+                                        tooltip="Magnitude do ajuste quando os gatilhos são ativados. Se 10%, o saque é reduzido/aumentado em 10% do valor atual. Valores típicos: 10% (moderado) a 15% (agressivo). Ajustes maiores protegem mais o portfólio mas causam maior variação no padrão de vida."
+                                    />
+                                    <div className="text-xs text-gray-500 mb-3 p-2 bg-midnight rounded">
+                                        <strong>Resumo G-K:</strong> Taxa inicial {params.withdrawalRate}% → Gatilhos em {(params.withdrawalRate * (1 + params.preservationThreshold)).toFixed(1)}% (↓) e {(params.withdrawalRate * (1 - params.prosperityThreshold)).toFixed(1)}% (↑) → Ajuste de ±{(params.adjustmentPercent * 100).toFixed(0)}%
+                                    </div>
+                                </>
+                            )}
+                            {!params.useGuytonKlinger && (
+                                <div className="text-xs text-gray-500 p-2 bg-midnight rounded">
+                                    Desativado: saques recebem apenas ajuste inflacionário anual, sem regras dinâmicas de preservação ou prosperidade.
+                                </div>
+                            )}
                         </div>
 
                         {/* Minimum Withdrawal Section */}
@@ -4204,7 +4237,7 @@
                                             <div className="text-gray-500">Sem tributação (cenário bruto)</div>
                                         )}
                                         <div className="border-t border-gray-700 pt-2 mt-2">--- Regras ---</div>
-                                        <div>Gatilhos G-K: ±{(params.preservationThreshold * 100).toFixed(0)}% → ±{(params.adjustmentPercent * 100).toFixed(0)}%</div>
+                                        <div>G-K: {params.useGuytonKlinger ? `±${(params.preservationThreshold * 100).toFixed(0)}% → ±${(params.adjustmentPercent * 100).toFixed(0)}%` : 'Desativado'}</div>
                                         <div>Transição Tenda → Alvo: 3 anos linear</div>
                                         {params.useBucketStrategy && (
                                             <div className="text-blue-400">Bucket Strategy: {params.bucketYears} anos (saques da RF)</div>

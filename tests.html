@@ -363,8 +363,17 @@
             }
 
             applyGuytonKlinger(currentWithdrawal, portfolioValue, initialWithdrawalRate, previousReturn, inflation) {
+                const { useGuytonKlinger, preservationThreshold, prosperityThreshold, adjustmentPercent, applyInflationRule } = this.params;
+
+                // If GK disabled, just apply flat inflation adjustment
+                if (!useGuytonKlinger) {
+                    return {
+                        withdrawal: currentWithdrawal * (1 + inflation),
+                        ruleApplied: null
+                    };
+                }
+
                 const currentRate = currentWithdrawal / portfolioValue;
-                const { preservationThreshold, prosperityThreshold, adjustmentPercent, applyInflationRule } = this.params;
 
                 let newWithdrawal = currentWithdrawal;
                 let ruleApplied = null;
@@ -419,6 +428,7 @@
                 useTaxModel: false,
                 equityTaxRate: 15,
                 fixedIncomeTaxRate: 15,
+                useGuytonKlinger: true,
                 preservationThreshold: 0.2,
                 prosperityThreshold: 0.2,
                 adjustmentPercent: 0.1,
@@ -1946,9 +1956,9 @@
                 // With G-K rules (adjustmentPercent > 0)
                 const resultWithGK = findOptimalSWR(baseParams, 90, 0.3, 300);
 
-                // Without G-K adjustment (adjustmentPercent = 0 effectively disables)
+                // Without G-K rules (master toggle off)
                 const resultNoGK = findOptimalSWR(
-                    { ...baseParams, adjustmentPercent: 0, applyInflationRule: false },
+                    { ...baseParams, useGuytonKlinger: false },
                     90, 0.3, 300
                 );
 
