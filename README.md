@@ -1,27 +1,29 @@
-# 📊 Monte Carlo Retirement Simulator
+# Monte Carlo Retirement Simulator
 
-Um simulador avançado de aposentadoria baseado em simulações de Monte Carlo, implementando as regras de Guyton-Klinger para saques dinâmicos, estratégia de buckets, e modelagem financeira.
+Um simulador avançado de aposentadoria baseado em simulações de Monte Carlo, implementando as regras de Guyton-Klinger para saques dinâmicos, estratégia de buckets, e modelagem financeira calibrada para investidores brasileiros com portfólios internacionais.
 
-🔗 **[Acesse a ferramenta online](https://alexfmonteiro.github.io/monte-carlo-retirement-simulator/)**
-
----
-
-## 📋 Índice
-
-- [Visão Geral](#-visão-geral)
-- [Funcionalidades](#-funcionalidades)
-- [Teoria Financeira](#-teoria-financeira)
-- [Parâmetros de Entrada](#-parâmetros-de-entrada)
-- [Interpretação dos Resultados](#-interpretação-dos-resultados)
-- [Instalação e Uso](#-instalação-e-uso)
-- [Metodologia Técnica](#-metodologia-técnica)
-- [Referências Acadêmicas](#-referências-acadêmicas)
+**[Acesse a ferramenta online](https://alexfmonteiro.github.io/monte-carlo-retirement-simulator/)**
 
 ---
 
-## 🎯 Visão Geral
+## Índice
 
-Este simulador foi desenvolvido para investidores brasileiros que possuem portfólios diversificados internacionalmente (como ETFs irlandeses) e precisam planejar saques sustentáveis durante a aposentadoria. Oferece dois modos de operação:
+- [Visão Geral](#visão-geral)
+- [Funcionalidades](#funcionalidades)
+- [Interface: Modo Simples e Avançado](#interface-modo-simples-e-avançado)
+- [Teoria Financeira](#teoria-financeira)
+- [Parâmetros de Entrada](#parâmetros-de-entrada)
+- [Calibração dos Defaults](#calibração-dos-defaults)
+- [Interpretação dos Resultados](#interpretação-dos-resultados)
+- [Instalação e Uso](#instalação-e-uso)
+- [Metodologia Técnica](#metodologia-técnica)
+- [Referências Acadêmicas](#referências-acadêmicas)
+
+---
+
+## Visão Geral
+
+Este simulador foi desenvolvido para investidores brasileiros que possuem portfólios diversificados internacionalmente (como ETFs irlandeses UCITS) e precisam planejar saques sustentáveis durante a aposentadoria. Oferece dois modos de operação:
 
 - **Modo Preservação**: Você define a taxa de saque e o simulador calcula a probabilidade de sucesso
 - **Modo Consumo Máximo** (Die With Zero): Você define a probabilidade de sucesso desejada e o sistema calcula a maior taxa de saque possível
@@ -32,29 +34,29 @@ A clássica "Regra dos 4%" foi desenvolvida para o mercado americano com condiç
 
 - **Risco cambial**: Patrimônio em USD, despesas em BRL
 - **Inflação brasileira**: IPCA historicamente mais volátil que CPI
-- **Tributação diferenciada**: ETFs irlandeses (15%) vs. Renda Fixa BR (tabela regressiva)
-- **Correlação inversa**: Real tende a desvalorizar quando bolsas caem
+- **Tributação diferenciada**: ETFs irlandeses (15% sob Lei 14.754/2023) vs. Renda Fixa BR (tabela regressiva)
+- **Correlação inversa**: Real tende a desvalorizar quando bolsas caem (duplo impacto)
 
 ---
 
-## ✨ Funcionalidades
+## Funcionalidades
 
 ### Modelagem Avançada de Retornos
 
 | Funcionalidade | Descrição |
 |----------------|-----------|
-| **Distribuição T-Student** | Captura "cisnes negros" com caudas mais gordas que a Normal (aproximação via razão) |
+| **Distribuição T-Student** | Captura "cisnes negros" com caudas mais gordas que a Normal (df=5) |
 | **Modos Monte Carlo** | IID puro (padrão) ou NON-IID com limite de sequências negativas |
-| **Correlação Dinâmica** | Correlação USD/BRL intensifica em crises |
-| **Modelo IPCA + Juro Real** | RF modelada como IPCA + spread, evitando juros reais negativos irrealistas |
-| **Reprodutibilidade** | Seed opcional para replicar simulações exatas |
+| **Correlação Dinâmica** | Correlação USD/BRL intensifica 2x em crises (base -0.4 → até -0.8) |
+| **Modelo IPCA + Juro Real** | RF modelada como IPCA + spread real, evitando juros reais negativos irrealistas |
+| **Reprodutibilidade** | Seed opcional para replicar simulações exatas (PRNG Mulberry32) |
 
 ### Estratégias de Saque
 
 | Estratégia | Descrição |
 |------------|-----------|
-| **Guyton-Klinger** | Regras dinâmicas de preservação, prosperidade e inflação |
-| **Bucket Strategy** | Proteção contra sequence of returns risk |
+| **Guyton-Klinger** | Regras dinâmicas de preservação, prosperidade e inflação (parâmetros originais do paper de 2006) |
+| **Bucket Strategy** | Proteção contra sequence of returns risk (5 anos em RF) |
 | **Rebalanceamento Inteligente** | Saque de RV quando acima do alvo para rebalancear |
 | **Saque Mínimo Garantido** | Nunca sacar menos que o necessário para sobreviver |
 
@@ -63,10 +65,9 @@ A clássica "Regra dos 4%" foi desenvolvida para o mercado americano com condiç
 | Funcionalidade | Descrição |
 |----------------|-----------|
 | **Modo Consumo Máximo** | Calcula automaticamente a maior taxa de saque possível |
-| **Bissecção em Duas Fases** | Fase 1 (busca grossa) + Fase 2 (busca fina) para precisão e velocidade |
+| **Bissecção em Duas Fases** | Fase 1 (busca grossa, 200 iter.) + Fase 2 (busca fina, 1000 iter.) + Validação completa |
 | **Confiança Parametrizável** | Defina a probabilidade de sucesso desejada (70% a 99%) |
 | **Patrimônio Final Alvo** | Defina quanto deseja deixar ao final (R$ 0 = Die With Zero) |
-| **Tolerância Configurável** | Precisão da busca ajustável (0.05% a 0.5%) |
 
 ### Análise de Stress
 
@@ -81,13 +82,46 @@ A clássica "Regra dos 4%" foi desenvolvida para o mercado americano com condiç
 
 | Funcionalidade | Descrição |
 |----------------|-----------|
+| **Modo Simples / Avançado** | Sidebar com duas abas — modo Simples mostra apenas parâmetros essenciais, modo Avançado mostra tudo |
+| **Layout Responsivo** | Layout adaptativo para desktop, tablet e mobile (breakpoint lg: 1024px) |
 | **Entrada Dual USD/BRL** | Todos os campos monetários aceitam entrada em USD ou BRL com conversão automática |
 | **Tooltips Detalhados** | Clique no ícone (?) para explicações completas de cada parâmetro em português |
+| **Exportar Resultados** | Exporta relatório completo em texto com todos os parâmetros e resultados |
 | **Resumo Calculado** | Exibe em tempo real: alocação RV/RF, saques anuais/mensais, tamanho do bucket |
 
 ---
 
-## 📚 Teoria Financeira
+## Interface: Modo Simples e Avançado
+
+A sidebar oferece duas abas para controlar a complexidade da interface:
+
+### Modo Simples (padrão)
+
+Mostra apenas os parâmetros essenciais:
+
+- **Objetivo de Vida** — Preservação ou Consumo Máximo
+- **Portfólio Inicial** — Patrimônio, câmbio, taxa de retirada
+- **Parâmetros de Otimização** — Apenas no modo Consumo
+- **Simulação** — Horizonte, iterações, seed
+
+Todos os parâmetros avançados (retornos, volatilidade, Guyton-Klinger, buckets, tributação, etc.) ficam ocultos mas mantêm seus valores padrão calibrados.
+
+### Modo Avançado
+
+Exibe todos os parâmetros, incluindo:
+
+- Retornos Esperados (RV/RF/inflação)
+- Estratégia Tenda (glidepath)
+- Regras Guyton-Klinger
+- Saque Mínimo Necessário
+- Estratégia de Buckets
+- Modelagem Avançada (T-Student, correlação dinâmica, IPCA, tributação)
+
+> **Nota**: Trocar entre os modos não reseta valores. Se você ajustar um parâmetro no modo Avançado e voltar ao Simples, o valor ajustado é mantido.
+
+---
+
+## Teoria Financeira
 
 ### Regras de Guyton-Klinger
 
@@ -133,8 +167,6 @@ Baseada no trabalho de Harold Evensky, esta estratégia divide o portfólio em "
 
 ### Rebalanceamento Inteligente por Saque
 
-Nova funcionalidade que otimiza a fonte dos saques:
-
 ```
 SE alocação_RV > alvo + threshold
 ENTÃO sacar da RV (rebalanceia automaticamente)
@@ -153,46 +185,40 @@ Mercados financeiros exibem "fat tails" — eventos extremos ocorrem mais freque
 | T-Student (df=5) | 9.0 | 1.24% |
 | S&P 500 histórico | ~7.0 | ~0.8% |
 
-Usar T-Student com 5-7 graus de liberdade captura melhor a probabilidade de crashes como 2008 ou 2020.
+Usar T-Student com 5 graus de liberdade captura melhor a probabilidade de crashes como 2008 ou 2020.
 
-> **Nota técnica**: A implementação usa aproximação via razão T = Z/√(χ²/df), com fator de escala para preservar a variância alvo. Para df baixos, a variância empírica pode divergir ligeiramente da teórica.
+> **Nota técnica**: A implementação usa aproximação via razão T = Z/√(χ²/df), com fator de escala √((df-2)/df) para preservar a variância alvo.
 
 ### Modos de Monte Carlo (IID vs. NON-IID)
-
-O simulador oferece dois modos distintos:
 
 | Modo | Descrição | Implicação Estatística |
 |------|-----------|------------------------|
 | **IID (padrão)** | Retornos independentes e identicamente distribuídos | Simulação puramente estocástica |
 | **NON-IID** | Limita sequências negativas consecutivas | Introduz viés de seleção amostral |
 
-**Quando usar NON-IID**: O modo NON-IID pode ser útil se você acredita que bear markets prolongados além do histórico observado são improváveis. Porém, é importante entender que isso **não é Monte Carlo puro** — você está efetivamente condicionando as amostras, o que pode subestimar riscos de cauda.
-
-> **Aviso**: O modo NON-IID rejeita caminhos com sequências negativas além do limite, o que reduz a estimativa de risco em cenários extremos. Use com consciência das implicações.
+> **Aviso**: O modo NON-IID rejeita caminhos com sequências negativas além do limite, o que pode subestimar riscos de cauda. Use com consciência das implicações.
 
 ### Otimizador de Consumo Máximo
 
 Inspirado na filosofia "Die With Zero" de Bill Perkins, este modo inverte a pergunta usual:
 
 ```
-Modo Preservação: "Quero sacar 4.7% — qual a probabilidade de sucesso?"
+Modo Preservação: "Quero sacar 4.0% — qual a probabilidade de sucesso?"
 Modo Consumo:     "Quero 90% de sucesso — quanto posso sacar?"
 ```
 
-O otimizador usa **bissecção em duas fases** para encontrar a taxa ótima:
+O otimizador usa **bissecção em duas fases**:
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │ Fase 1: Busca Grossa                                           │
 │ • Range: 0.5% a 15% SWR                                        │
 │ • 200 iterações Monte Carlo por teste                           │
-│ • Tolerância: 0.5%                                              │
 │ • ~5 passos → estreita o intervalo                              │
 ├─────────────────────────────────────────────────────────────────┤
 │ Fase 2: Busca Fina                                              │
 │ • Range: resultado ± 1%                                         │
 │ • 1000 iterações Monte Carlo por teste                          │
-│ • Tolerância: configurável (default 0.1%)                       │
 │ • ~4 passos → encontra taxa ótima                               │
 ├─────────────────────────────────────────────────────────────────┤
 │ Validação Final                                                 │
@@ -201,9 +227,7 @@ O otimizador usa **bissecção em duas fases** para encontrar a taxa ótima:
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-**Resultado**: "Para 90% de chance de não faltar dinheiro em 30 anos, usando Guyton-Klinger, você pode sacar inicialmente R$ X.XXX/mês (taxa de Y.YY%)."
-
-> **Nota importante**: O otimizador reutiliza TODOS os parâmetros configurados (G-K, Buckets, Tenda, T-Student, correlação dinâmica, impostos). Ele apenas busca a `withdrawalRate` ideal — não altera nenhuma regra de simulação.
+> **Nota**: O otimizador reutiliza TODOS os parâmetros configurados (G-K, Buckets, Tenda, T-Student, correlação dinâmica, impostos). Ele apenas busca a `withdrawalRate` ideal — não altera nenhuma regra de simulação.
 
 ### Correlação Dinâmica BRL/USD
 
@@ -219,7 +243,7 @@ O simulador modela isso dinamicamente baseado na severidade da queda.
 
 ---
 
-## ⚙️ Parâmetros de Entrada
+## Parâmetros de Entrada
 
 ### Objetivo de Vida
 
@@ -230,29 +254,25 @@ O simulador modela isso dinamicamente baseado na severidade da queda.
 | **Patrimônio Final Alvo** | Quanto deixar ao final do horizonte (apenas modo Consumo) | R$ 0 |
 | **Tolerância da Busca** | Precisão do otimizador (apenas modo Consumo) | 0.1% |
 
-> **Modo Preservação**: Você define a taxa de saque e observa a probabilidade de sucesso. Ideal para planejamento conservador focado em herança.
->
-> **Modo Consumo Máximo**: Você define a probabilidade de sucesso desejada e o sistema encontra a maior taxa de saque possível. Filosofia "Die With Zero" — maximizar consumo em vida.
-
 ### Portfólio Inicial
 
-| Parâmetro | Descrição | Valores Típicos |
-|-----------|-----------|-----------------|
-| **Patrimônio Total** | Valor total do portfólio (entrada em USD ou BRL com conversão automática) | $500k - $2M / R$ 2.5M - R$ 10M |
-| **Taxa de Câmbio** | USD/BRL inicial | 4.80 - 6.00 |
-| **Taxa de Retirada (SWR)** | % anual do portfólio inicial (modo Preservação) ou calculado automaticamente (modo Consumo) | 3.5% - 5.0% |
+| Parâmetro | Descrição | Default | Valores Típicos |
+|-----------|-----------|---------|-----------------|
+| **Patrimônio Total** | Valor total do portfólio (entrada em USD ou BRL) | $1,000,000 | $500k - $2M |
+| **Taxa de Câmbio** | USD/BRL inicial | 5.80 | 5.00 - 6.50 |
+| **Taxa de Retirada (SWR)** | % anual do portfólio inicial (modo Preservação) | 4.0% | 3.0% - 5.0% |
 
 > **Nota**: O portfólio total é dividido entre RV e RF conforme o "% RF Inicial" definido na Estratégia Tenda. Todos os campos monetários possuem entrada dual USD/BRL com conversão automática.
 
 ### Retornos e Volatilidade
 
-| Parâmetro | Descrição | Default | Histórico |
-|-----------|-----------|---------|-----------|
-| **Retorno RV** | Retorno esperado da renda variável | 7.0% | S&P 500: ~10% nominal |
-| **Volatilidade RV** | Desvio padrão anual | 18.0% | S&P 500: ~16% |
-| **Retorno RF** | Retorno da renda fixa (se não usar modelo IPCA) | 4.0% | - |
-| **Volatilidade RF** | Desvio padrão RF | 6.0% | - |
-| **Inflação** | Inflação anual esperada | 4.5% | IPCA médio |
+| Parâmetro | Descrição | Default | Base Empírica |
+|-----------|-----------|---------|---------------|
+| **Retorno RV** | Retorno nominal esperado em USD (RV global) | 7.0% | S&P 500: ~10% nominal, MSCI World: ~8.9% |
+| **Volatilidade RV** | Desvio padrão anual | 18.0% | S&P 500: ~19%, MSCI ACWI: ~15.7% |
+| **Retorno RF** | Retorno da renda fixa (se não usar modelo IPCA) | 4.0% | NTN-B real: ~4-5% |
+| **Volatilidade RF** | Desvio padrão RF | 6.0% | NTN-B: ~5-12% conforme prazo |
+| **Inflação (IPCA)** | Inflação anual esperada | 4.5% | IPCA 2004-2024: ~5.7% média |
 
 ### Horizonte e Simulação
 
@@ -260,12 +280,10 @@ O simulador modela isso dinamicamente baseado na severidade da queda.
 |-----------|-----------|---------|
 | **Anos** | Horizonte de aposentadoria | 30 |
 | **Iterações** | Número de simulações Monte Carlo | 2000 |
-| **Modo** | IID (padrão) ou NON-IID (com limite de sequências negativas) | IID |
+| **Modo** | IID (padrão) ou NON-IID | IID |
 | **Seed** | Semente para reprodutibilidade (vazio = aleatório) | - |
 
-> **Modo NON-IID**: O limite de anos negativos consecutivos previne cenários de bear markets prolongados. Historicamente, o S&P 500 nunca teve mais de 4 anos consecutivos negativos (1929-1932). Use com consciência de que isso introduz viés de seleção amostral.
-
-> **Reprodutibilidade**: Ao definir um seed, a mesma simulação pode ser replicada exatamente. Útil para debugging, comparações e validação de resultados.
+> **Reprodutibilidade**: Ao definir um seed, a mesma simulação pode ser replicada exatamente. Útil para comparações e validação.
 
 ### Estratégia Tenda (Bond Glide Path)
 
@@ -275,9 +293,7 @@ O simulador modela isso dinamicamente baseado na severidade da queda.
 | **Duração Transição** | Anos para atingir a alocação alvo | 5 |
 | **RF Alvo** | % em renda fixa após transição | 20% |
 
-A implementação é um **glide path linear** — a alocação de RF decresce linearmente do valor inicial até o alvo durante o período de transição, depois permanece constante. Diferente de uma "tenda" simétrica clássica (que sobe e desce), esta é uma **rampa descendente monotônica**.
-
-> **Nota técnica**: A nomenclatura "Bond Tent" é uma simplificação. Academicamente, esta é uma estratégia de "rising equity glide path" (Kitces & Pfau, 2015).
+A implementação é um **glide path linear** — a alocação de RF decresce linearmente do valor inicial até o alvo durante o período de transição. Academicamente, esta é uma estratégia de "rising equity glide path" (Kitces & Pfau, 2015).
 
 ### Regras de Guyton-Klinger
 
@@ -288,14 +304,14 @@ A implementação é um **glide path linear** — a alocação de RF decresce li
 | **Ajuste** | % de ajuste quando regra dispara | 10% |
 | **Aplicar Regra de Inflação** | Pular inflação após anos ruins | Sim |
 
+> Os parâmetros 20%/20%/10% são idênticos aos do paper original de Guyton & Klinger (2006).
+
 ### Bucket Strategy
 
 | Parâmetro | Descrição | Default |
 |-----------|-----------|---------|
 | **Usar Buckets** | Ativar estratégia de reserva | Sim |
 | **Anos de Proteção** | Anos sacando exclusivamente da RF | 5 |
-
-> O tamanho do bucket de RF é determinado pelo "% RF Inicial" da Estratégia Tenda. Rebalanceamento inteligente é aplicado automaticamente quando RV está significativamente acima do alvo.
 
 ### Saque Mínimo
 
@@ -308,21 +324,58 @@ A implementação é um **glide path linear** — a alocação de RF decresce li
 
 ### Modelagem Avançada
 
-| Parâmetro | Descrição | Default |
-|-----------|-----------|---------|
-| **T-Student** | Usar distribuição com caudas gordas | Sim |
-| **Graus de Liberdade** | Menor = caudas mais gordas | 5 |
-| **Correlação Dinâmica** | Correlação FX intensifica em crises | Sim |
-| **Modelo IPCA** | RF = IPCA + Juro Real | Sim |
-| **IPCA Esperado** | IPCA médio esperado | 4.5% |
-| **Spread Real** | Juro real sobre IPCA | 5.5% |
-| **Modelo Tributário** | Descontar IR dos saques | Sim |
-| **IR RV** | Alíquota sobre ganhos de RV | 15% |
-| **IR RF** | Alíquota sobre rendimentos RF | 15% |
+| Parâmetro | Descrição | Default | Base Empírica |
+|-----------|-----------|---------|---------------|
+| **T-Student** | Usar distribuição com caudas gordas | Sim | - |
+| **Graus de Liberdade** | Menor = caudas mais gordas | 5 | Pesquisas sugerem df=2-7 para mercados |
+| **Correlação Dinâmica** | Correlação FX intensifica em crises | Sim | - |
+| **Correlação Base** | Correlação RV vs. BRL/USD | -0.4 | USD/S&P 500: ~-0.26 média, BRL mais forte |
+| **Multiplicador Stress** | Intensificação em crises | 2.0x | Crises: correlação chega a -0.8 |
+| **Modelo IPCA** | RF = IPCA + Juro Real | Sim | - |
+| **IPCA Esperado** | IPCA médio esperado | 4.5% | IPCA 2004-2024: ~5.7% média |
+| **Volatilidade IPCA** | Desvio padrão do IPCA | 2.0% | Histórico: ~1.8-2.0% |
+| **Spread Real** | Juro real sobre IPCA (NTN-B) | 5.0% | NTN-B histórico: ~3.6-5.0% média |
+| **Modelo Tributário** | Descontar IR dos saques | Sim | - |
+| **IR RV** | Alíquota sobre ganhos de RV | 15% | Lei 14.754/2023 (investimentos offshore) |
+| **IR RF** | Alíquota sobre rendimentos RF | 15% | Tabela regressiva IR (>720 dias) |
 
 ---
 
-## 📈 Interpretação dos Resultados
+## Calibração dos Defaults
+
+Todos os valores padrão foram calibrados com base em dados históricos e pesquisa acadêmica:
+
+### Retorno RV: 7.0% (nominal USD)
+
+O retorno de 7% é uma estimativa **conservadora** para retornos nominais em USD de um portfólio global de renda variável. O S&P 500 retornou ~10% nominal historicamente (1928-2024), e o MSCI World ~8.9%. O valor de 7% já embute desconto para: diversificação não-US, drag de ETFs irlandeses (~0.3% de WHT + TER), e incerteza sobre retornos futuros.
+
+### Taxa de Retirada: 4.0%
+
+A clássica regra de Bengen (1994) de 4% foi baseada em dados americanos. Pesquisas internacionais (Pfau, 2010) mostram que a SWR segura global é ~3.5% para portfólios 50/50. Com as regras Guyton-Klinger ativadas (que permitem flexibilidade de gastos), taxas de até ~4.5% podem ser viáveis. O default de 4.0% equilibra segurança e aproveitamento com G-K ativo.
+
+### Spread Real RF: 5.0% (sobre IPCA)
+
+O Tesouro IPCA+ (NTN-B) historicamente pagou uma média de ~3.6-5.0% de juro real. Em fevereiro de 2026, as taxas estão elevadas (~7.5%), mas para um horizonte de 30 anos é prudente assumir normalização. O default de 5.0% reflete um cenário moderadamente otimista mas alcançável.
+
+### IPCA: 4.5%
+
+O IPCA médio de 2004-2024 foi ~5.7%, mas o período inclui choques inflacionários (2015-2016, 2021-2022). A meta do Banco Central é 3.0% (+/- 1.5pp). O default de 4.5% reflete a tendência brasileira de operar acima da meta, sem assumir os extremos.
+
+### Correlação BRL/USD: -0.4
+
+A correlação média USD/S&P 500 é ~-0.26, mas para moedas de mercados emergentes como o BRL (que têm forte caráter risk-on/risk-off), a correlação negativa é mais intensa. Com multiplicador de stress 2.0x, a correlação pode chegar a -0.8 durante crises, consistente com o observado em 2008, 2015 e 2020.
+
+### Tributação: 15%
+
+A Lei 14.754/2023 estabeleceu alíquota flat de 15% sobre rendimentos de investimentos offshore para residentes fiscais brasileiros (vigente desde janeiro de 2024). Para renda fixa brasileira, 15% corresponde à alíquota mínima da tabela regressiva (aplicações >720 dias), que é o cenário típico de um portfólio de aposentadoria.
+
+### Guyton-Klinger: 20%/20%/10%
+
+Os parâmetros são idênticos aos do paper original de Guyton & Klinger (2006): gatilho de preservação a 20% acima da taxa inicial, prosperidade a 20% abaixo, e ajuste de 10% quando a regra dispara.
+
+---
+
+## Interpretação dos Resultados
 
 ### Card: Plano de Consumo Máximo (Modo Consumo)
 
@@ -336,20 +389,12 @@ Sobrevivência Real: 90.5%
 Patrimônio Final Mediano: R$ 125.000
 ```
 
-**O que significa**:
-
-- **Taxa Ótima**: A maior taxa de saque inicial onde a sobrevivência é ≥ confiança desejada
+- **Taxa Ótima**: A maior taxa de saque inicial onde a sobrevivência >= confiança desejada
 - **±0.1%**: Margem de precisão da busca (configurável via "Tolerância")
-- **Sobrevivência Real**: Taxa efetiva calculada na validação final (pode ser ligeiramente superior à meta)
+- **Sobrevivência Real**: Taxa efetiva calculada na validação final
 - **Patrimônio Final Mediano**: Metade dos cenários bem-sucedidos termina acima deste valor
 
 ### Card: Taxa de Sobrevivência
-
-```
-Taxa de Sobrevivência: 94.2%
-```
-
-**O que significa**: Em 94.2% das 2000 simulações, o portfólio não zerou em 30 anos.
 
 | Taxa | Interpretação |
 |------|---------------|
@@ -357,27 +402,6 @@ Taxa de Sobrevivência: 94.2%
 | 90-95% | Bom - risco aceitável para maioria |
 | 80-90% | Atenção - considere ajustes |
 | < 80% | Risco elevado - revise parâmetros |
-
-### Card: Saque Médio
-
-```
-Saque Médio: R$ 285.000/ano
-Mediana: R$ 268.000/ano
-```
-
-**O que significa**: 
-- **Média**: Valor esperado considerando todos os cenários
-- **Mediana**: Metade dos cenários fica acima, metade abaixo
-
-Se média > mediana, cenários positivos estão puxando a média para cima.
-
-### Card: Pior Saque
-
-```
-Pior Saque: R$ 165.000
-```
-
-**O que significa**: O menor saque anual em qualquer simulação bem-sucedida. Se você definiu saque mínimo, este valor será igual ou maior que o mínimo.
 
 ### Gráfico: Evolução do Portfólio
 
@@ -388,40 +412,22 @@ Mostra bandas de percentis ao longo do tempo:
 - **P25**: Quartil inferior
 - **P10** (linha inferior): 10% piores cenários
 
-### Gráfico: Distribuição de Saques
-
-Histograma dos saques anuais mostrando:
-- Onde a maioria dos saques se concentra
-- Dispersão (quanto variam)
-- Presença de outliers
-
 ### Seção: Análise de Stress
 
-#### Duração dos Períodos de Stress
-Quanto tempo consecutivo o saque mínimo foi necessário (G-K queria dar menos).
-
-#### Taxa de Tolerância vs. Sucesso
-"Se eu posso tolerar X anos de stress, qual minha taxa de sucesso?"
-
-```
-Tolerância 0 anos: 72% sucesso
-Tolerância 2 anos: 89% sucesso
-Tolerância 5 anos: 96% sucesso
-```
-
-#### Impacto no Portfólio
-Quanto a mais foi retirado do portfólio (vs. G-K recomendado) para manter o mínimo.
-
-#### Taxa de Recuperação
-% dos períodos de stress onde o mercado eventualmente se recuperou (G-K voltou a recomendar acima do mínimo).
+- **Duração dos Períodos de Stress**: Quanto tempo consecutivo o saque mínimo foi necessário
+- **Taxa de Tolerância vs. Sucesso**: "Se eu posso tolerar X anos de stress, qual minha taxa de sucesso?"
+- **Impacto no Portfólio**: Quanto a mais foi retirado vs. G-K recomendado
+- **Taxa de Recuperação**: % dos períodos de stress que eventualmente se recuperaram
 
 ---
 
-## 🚀 Instalação e Uso
+## Instalação e Uso
 
 ### Uso Online (Recomendado)
 
 Simplesmente acesse: **https://alexfmonteiro.github.io/monte-carlo-retirement-simulator/**
+
+A interface é responsiva e funciona em desktop, tablet e celular.
 
 ### Uso Local
 
@@ -474,7 +480,7 @@ A suíte de testes cobre:
 
 ---
 
-## 🔬 Metodologia Técnica
+## Metodologia Técnica
 
 ### Geração de Números Aleatórios
 
@@ -499,8 +505,6 @@ T = Z / √(χ²/df) × scaleFactor
 // scaleFactor = √((df-2)/df) para preservar variância
 ```
 
-Onde χ² é soma de df variáveis normais ao quadrado. Note que para df ≤ 2, a variância teórica é indefinida.
-
 ### Correlação
 
 Decomposição de Cholesky para gerar variáveis correlacionadas:
@@ -513,9 +517,9 @@ Z₂_correlacionado = ρ × Z₁ + √(1-ρ²) × Z₂
 
 Modelo com:
 
-1. **Correlação com equity**: Quando RV cai, USD sobe
+1. **Correlação com equity**: Quando RV cai, USD sobe (Cholesky)
 2. **Mean reversion**: Câmbio tende a voltar à média de longo prazo
-3. **Stress multiplier**: Volatilidade aumenta em crises
+3. **Stress multiplier**: Volatilidade aumenta 1.3x em crises
 
 ### Cálculo de Impostos
 
@@ -527,10 +531,7 @@ Onde Proporção_Ganhos cresce com o tempo (mais do portfólio é ganho, menos �
 
 ### Otimizador (Método da Bissecção)
 
-O otimizador encontra a taxa de saque ótima via busca binária:
-
 ```javascript
-// Pseudocódigo
 low = 0.5%, high = 15%
 while (high - low > tolerance):
     mid = (low + high) / 2
@@ -542,49 +543,53 @@ while (high - low > tolerance):
         high = mid      // Precisa taxa mais baixa
 ```
 
-A abordagem em duas fases (grossa → fina) reduz o número total de simulações enquanto mantém alta precisão:
+A abordagem em duas fases reduz o número total de simulações:
 
 - **Fase 1**: ~5 passos × 200 iterações = 1,000 simulações
 - **Fase 2**: ~4 passos × 1,000 iterações = 4,000 simulações
 - **Validação**: 1 × N iterações (configurável)
 - **Total**: ~5,000 + N simulações
 
-> **Seed consistente**: O otimizador usa o mesmo seed mestre em todos os passos da bissecção, garantindo que as comparações entre taxas são justas (mesma sequência de cenários).
+> **Seed consistente**: O otimizador usa o mesmo seed mestre em todos os passos da bissecção, garantindo comparações justas entre taxas.
 
 ---
 
-## 📖 Referências Acadêmicas
+## Referências Acadêmicas
 
 1. **Bengen, W. P. (1994)**. "Determining Withdrawal Rates Using Historical Data." *Journal of Financial Planning*.
 
 2. **Guyton, J. T., & Klinger, W. J. (2006)**. "Decision Rules and Maximum Initial Withdrawal Rates." *Journal of Financial Planning*.
 
-3. **Kitces, M. E., & Pfau, W. D. (2015)**. "Retirement Risk, Rising Equity Glide Paths, and Valuation-Based Asset Allocation." *Journal of Financial Planning*.
+3. **Pfau, W. D. (2010)**. "An International Perspective on Safe Withdrawal Rates from Retirement Savings." *Journal of Financial Planning*.
 
-4. **Estrada, J. (2017)**. "Maximum Withdrawal Rates: An Empirical and Global Perspective." *Journal of Retirement*.
+4. **Kitces, M. E., & Pfau, W. D. (2015)**. "Retirement Risk, Rising Equity Glide Paths, and Valuation-Based Asset Allocation." *Journal of Financial Planning*.
 
-5. **Pfau, W. D. (2018)**. *How Much Can I Spend in Retirement?* Retirement Researcher Media.
+5. **Estrada, J. (2017)**. "Maximum Withdrawal Rates: An Empirical and Global Perspective." *Journal of Retirement*.
 
-6. **Perkins, B. (2020)**. *Die With Zero: Getting All You Can from Your Money and Your Life*. Houghton Mifflin Harcourt.
+6. **Pfau, W. D. (2018)**. *How Much Can I Spend in Retirement?* Retirement Researcher Media.
+
+7. **Perkins, B. (2020)**. *Die With Zero: Getting All You Can from Your Money and Your Life*. Houghton Mifflin Harcourt.
+
+8. **Brasil, Lei 14.754/2023**. Tributação de investimentos no exterior para residentes fiscais brasileiros. Alíquota de 15% sobre rendimentos offshore.
 
 ---
 
-## 📝 Licença
+## Licença
 
 MIT License - Veja [LICENSE](LICENSE) para detalhes.
 
 ---
 
-## 🤝 Contribuições
+## Contribuições
 
 Contribuições são bem-vindas! Por favor, abra uma issue primeiro para discutir mudanças significativas.
 
 ---
 
-## ⚠️ Disclaimer
+## Disclaimer
 
 Esta ferramenta é apenas para fins educacionais e de planejamento. Não constitui aconselhamento financeiro. Consulte um profissional certificado antes de tomar decisões de investimento.
 
 ---
 
-Desenvolvido com ❤️ para a comunidade FIRE brasileira.
+Desenvolvido para a comunidade FIRE brasileira.

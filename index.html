@@ -2559,24 +2559,24 @@
             const [params, setParams] = useState({
                 initialPortfolioUSD: 1000000,
                 initialPortfolioBRL: 0, // Portfolio in BRL (Brazilian fixed income)
-                initialFX: 5.50,
-                withdrawalRate: 4.7,
-                equityReturn: 7.0,
+                initialFX: 5.80,
+                withdrawalRate: 4.0,
+                equityReturn: 8.0,
                 equityVolatility: 18.0,
-                bondReturn: 4.0,
-                bondVolatility: 6.0,
+                bondReturn: 5.0,
+                bondVolatility: 2.0,
                 inflation: 4.5,
-                years: 30,
-                iterations: 2000,
-                tentInitialBondPercent: 35,
+                years: 50,
+                iterations: 20000,
+                tentInitialBondPercent: 40,
                 tentDuration: 5,
-                targetBondPercent: 20,
+                targetBondPercent: 40,
                 useGuytonKlinger: true,
                 preservationThreshold: 0.20,
                 prosperityThreshold: 0.20,
                 adjustmentPercent: 0.10,
                 applyInflationRule: true,
-                minimumWithdrawalBRL: 200000,
+                minimumWithdrawalBRL: 120000,
                 useMinimumWithdrawal: false,
                 bucketYears: 5,
                 useBucketStrategy: true,
@@ -2590,7 +2590,7 @@
                 useIPCAModel: true,
                 expectedIPCA: 4.5, // Expected IPCA %
                 ipcaVolatility: 2.0, // IPCA volatility %
-                realSpread: 5.5, // Real spread over IPCA for fixed income %
+                realSpread: 5.0, // Real spread over IPCA for fixed income %
                 // Tax model
                 useTaxModel: true,
                 equityTaxRate: 15, // % tax on equity gains (Irish ETFs)
@@ -2604,7 +2604,8 @@
                 objectiveMode: 'preservation', // 'preservation' | 'consumption'
                 targetSuccessRate: 90, // Target survival rate for consumption mode (%)
                 targetEndBalance: 0, // Target end balance in BRL (Die With Zero)
-                optimizerTolerance: 0.1 // Tolerance for bisection search (%)
+                optimizerTolerance: 0.1, // Tolerance for bisection search (%)
+                sidebarMode: 'simple' // 'simple' | 'advanced'
             });
 
             const [results, setResults] = useState(null);
@@ -2965,6 +2966,30 @@
                             </a>
                         </div>
 
+                        {/* Simple / Advanced Mode Tabs */}
+                        <div className="flex bg-midnight rounded-lg p-1 mb-6">
+                            <button
+                                onClick={() => updateParam('sidebarMode', 'simple')}
+                                className={`flex-1 py-1.5 px-3 rounded-md text-xs font-medium transition-colors ${
+                                    params.sidebarMode === 'simple'
+                                        ? 'bg-accent text-white'
+                                        : 'text-gray-400 hover:text-gray-200'
+                                }`}
+                            >
+                                Simples
+                            </button>
+                            <button
+                                onClick={() => updateParam('sidebarMode', 'advanced')}
+                                className={`flex-1 py-1.5 px-3 rounded-md text-xs font-medium transition-colors ${
+                                    params.sidebarMode === 'advanced'
+                                        ? 'bg-accent text-white'
+                                        : 'text-gray-400 hover:text-gray-200'
+                                }`}
+                            >
+                                Avançado
+                            </button>
+                        </div>
+
                         {/* Objective Mode Selector */}
                         <div className="mb-6">
                             <h2 className="text-sm font-semibold text-gray-300 mb-3 flex items-center gap-2">
@@ -3046,7 +3071,7 @@
                                     min={2}
                                     max={8}
                                     step={0.1}
-                                    tooltip="Safe Withdrawal Rate - percentual do portfólio total retirado no primeiro ano, ajustado pela inflação nos anos seguintes. O estudo original de Bengen (1994) sugeriu 4%, mas foi revisado para 4.7% em 2006 considerando diversificação internacional. Taxas mais altas aumentam o risco de depleção; mais baixas deixam mais herança."
+                                    tooltip="Safe Withdrawal Rate - percentual do portfólio total retirado no primeiro ano, ajustado pela inflação nos anos seguintes. O estudo original de Bengen (1994) sugeriu 4% para portfólios americanos. Para investidores internacionais com risco cambial, 3.5-4.0% é mais prudente. Com regras Guyton-Klinger ativadas, taxas até ~4.5% podem ser viáveis. Taxas mais altas aumentam o risco de depleção; mais baixas deixam mais herança."
                                 />
                             ) : (
                                 <div className="mb-3">
@@ -3114,6 +3139,7 @@
                             </div>
                         )}
 
+                        {params.sidebarMode === 'advanced' && (<>
                         {/* Returns Section */}
                         <div className="mb-6">
                             <h2 className="text-sm font-semibold text-gray-300 mb-3 flex items-center gap-2">
@@ -3128,7 +3154,7 @@
                                 min={0}
                                 max={15}
                                 step={0.5}
-                                tooltip="Retorno médio anual esperado da renda variável em termos REAIS (acima da inflação). Historicamente, o mercado global retorna ~7% a.a. real. Valores mais conservadores (5-6%) são recomendados para planejamento de longo prazo. Este é o retorno antes de impostos."
+                                tooltip="Retorno médio anual esperado (nominal, em USD) da renda variável. Historicamente, o S&P 500 retorna ~10% a.a. nominal e ~7% real. O valor de 7% já embute conservadorismo ao assumir retornos reais como proxy para nominal. ETFs irlandeses têm drag de ~0.3% (WHT + TER). Para planejamento conservador, use 5-6%."
                             />
                             <Input
                                 label="Volatilidade RV"
@@ -3246,7 +3272,7 @@
                                         min={5}
                                         max={50}
                                         step={5}
-                                        tooltip="REGRA DE PRESERVAÇÃO: Quando o portfólio cai, a taxa de retirada atual (saque ÷ portfólio) sobe. Se esta taxa ultrapassar a taxa inicial em mais de X%, o saque é REDUZIDO. Exemplo: taxa inicial 4.7%, gatilho 20%. Se taxa atual > 5.64% (4.7% × 1.2), reduz o saque. Protege o portfólio em bear markets."
+                                        tooltip="REGRA DE PRESERVAÇÃO: Quando o portfólio cai, a taxa de retirada atual (saque ÷ portfólio) sobe. Se esta taxa ultrapassar a taxa inicial em mais de X%, o saque é REDUZIDO. Exemplo: taxa inicial 4%, gatilho 20%. Se taxa atual > 4.8% (4% × 1.2), reduz o saque. Protege o portfólio em bear markets."
                                     />
                                     <Input
                                         label="Gatilho Prosperity"
@@ -3256,7 +3282,7 @@
                                         min={5}
                                         max={50}
                                         step={5}
-                                        tooltip="REGRA DE PROSPERIDADE: Quando o portfólio sobe, a taxa de retirada atual cai. Se esta taxa ficar abaixo da taxa inicial em mais de X%, o saque é AUMENTADO. Exemplo: taxa inicial 4.7%, gatilho 20%. Se taxa atual < 3.76% (4.7% × 0.8), aumenta o saque. Permite aproveitar bull markets."
+                                        tooltip="REGRA DE PROSPERIDADE: Quando o portfólio sobe, a taxa de retirada atual cai. Se esta taxa ficar abaixo da taxa inicial em mais de X%, o saque é AUMENTADO. Exemplo: taxa inicial 4%, gatilho 20%. Se taxa atual < 3.2% (4% × 0.8), aumenta o saque. Permite aproveitar bull markets."
                                     />
                                     <Input
                                         label="Ajuste Percentual"
@@ -3519,6 +3545,18 @@
                                 {params.useTaxModel && <div>• <span className="text-yellow-400">Tributação</span>: {params.equityTaxRate}% RV / {params.fixedIncomeTaxRate}% RF</div>}
                             </div>
                         </div>
+                        </>)}
+
+                        {params.sidebarMode === 'simple' && (
+                            <div className="text-xs text-gray-500 p-3 bg-midnight rounded-lg border border-gray-800 mb-6">
+                                <div className="flex items-center gap-1.5 mb-1">
+                                    <Icon name="Info" size={12} />
+                                    <span className="font-medium text-gray-400">Usando valores padrão</span>
+                                </div>
+                                Retornos, volatilidade, regras G-K, tributação e outros parâmetros avançados
+                                estão configurados com valores recomendados. Troque para <strong className="text-gray-300">Avançado</strong> para personalizar.
+                            </div>
+                        )}
 
                         {/* Simulation Section */}
                         <div className="mb-6">
