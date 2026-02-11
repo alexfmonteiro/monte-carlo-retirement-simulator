@@ -2931,9 +2931,9 @@
             };
 
             return (
-                <div className="min-h-screen flex">
+                <div className="min-h-screen flex flex-col lg:flex-row">
                     {/* Sidebar */}
-                    <aside className="w-80 bg-deep border-r border-gray-800 p-5 overflow-y-auto">
+                    <aside className="w-full lg:w-80 bg-deep border-b lg:border-b-0 lg:border-r border-gray-800 p-4 lg:p-5 lg:overflow-y-auto">
                         <div className="mb-6">
                             <div className="flex items-center gap-2 mb-1">
                                 <Icon name="TrendingUp" size={24} className="text-accent" />
@@ -3700,7 +3700,7 @@
                     </aside>
 
                     {/* Main Content */}
-                    <main className="flex-1 p-6 overflow-y-auto">
+                    <main className="flex-1 p-4 lg:p-6 lg:overflow-y-auto">
                         {!results ? (
                             <div className="flex justify-center pt-10">
                                 <div className="text-center max-w-md">
@@ -3813,7 +3813,7 @@
                                             </div>
                                         </div>
 
-                                        <div className="grid grid-cols-3 gap-4 mb-4">
+                                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4 mb-4">
                                             <div className="bg-midnight/50 rounded-lg p-3 text-center">
                                                 <div className="text-xs text-gray-500 mb-1">Saque Mensal</div>
                                                 <div className="text-xl font-bold font-mono text-white">
@@ -3860,7 +3860,7 @@
                                 )}
 
                                 {/* Reproducibility Info Bar */}
-                                <div className="flex items-center justify-between p-3 bg-surface rounded-lg border border-gray-800 text-xs">
+                                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 sm:gap-0 p-3 bg-surface rounded-lg border border-gray-800 text-xs">
                                     <div className="flex items-center gap-4">
                                         <span className="text-gray-400">
                                             Modo: <span className={results.mode === 'pure_iid' ? 'text-accent font-semibold' : 'text-warning font-semibold'}>
@@ -3903,7 +3903,7 @@
                                 </div>
 
                                 {/* Header Stats */}
-                                <div className="grid grid-cols-5 gap-4">
+                                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 lg:gap-4">
                                     <StatCard
                                         title="Taxa de Sobrevivência"
                                         value={results.survivalRate.toFixed(1)}
@@ -3947,7 +3947,7 @@
                                 </div>
 
                                 {/* Charts Row 1 */}
-                                <div className="grid grid-cols-2 gap-6">
+                                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-6">
                                     <div className="bg-surface rounded-xl p-4 border border-gray-800">
                                         <div className="flex items-center gap-2 mb-4">
                                             <Icon name="LineChart" size={20} className="text-accent" />
@@ -3973,8 +3973,8 @@
                                 </div>
 
                                 {/* Charts Row 2 - Withdrawal Evolution */}
-                                <div className="grid grid-cols-3 gap-6">
-                                    <div className="col-span-2 bg-surface rounded-xl p-4 border border-gray-800">
+                                <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-6">
+                                    <div className="lg:col-span-2 bg-surface rounded-xl p-4 border border-gray-800">
                                         <div className="flex items-center gap-2 mb-4">
                                             <Icon name="TrendingUp" size={20} className="text-purple-400" />
                                             <h3 className="font-semibold">Evolução Média vs Mediana dos Saques</h3>
@@ -4001,7 +4001,7 @@
                                 </div>
 
                                 {/* Analysis Section */}
-                                <div className="grid grid-cols-2 gap-6">
+                                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-6">
                                     <FailureAnalysis 
                                         failureCauses={results.failureCauses}
                                         avgFailureYear={results.avgFailureYear}
@@ -4036,7 +4036,7 @@
                                         />
 
                                         {/* Option B & D: Tolerance and Stress Timeline */}
-                                        <div className="grid grid-cols-2 gap-6">
+                                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-6">
                                             <ToleranceSuccessChart 
                                                 toleranceData={results.stressAnalysis.tolerance}
                                                 currentSurvivalRate={results.survivalRate}
@@ -4049,7 +4049,7 @@
                                         </div>
 
                                         {/* Options A, C, E: Duration, Portfolio Impact, Recovery */}
-                                        <div className="grid grid-cols-3 gap-6">
+                                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 lg:gap-6">
                                             <StressDurationAnalysis 
                                                 durationAnalysis={results.stressAnalysis.duration}
                                                 formatCurrency={formatCurrency}
