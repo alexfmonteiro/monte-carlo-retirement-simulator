@@ -2793,6 +2793,143 @@
                 }).format(value);
             };
 
+            const downloadExport = () => {
+                if (!results) return;
+
+                const fmt = (v, d = 0) => new Intl.NumberFormat('pt-BR', {
+                    style: 'currency', currency: 'BRL', maximumFractionDigits: d
+                }).format(v);
+
+                const date = new Date().toISOString().split('T')[0];
+                const mode = results.mode === 'pure_iid' ? 'Monte Carlo Puro (IID)' : 'Monte Carlo Restrito (NON-IID)';
+                const totalYearDecisions = results.totalSimulations * params.years;
+                const lastIdx = params.years;
+                const p = results.portfolioPercentiles;
+
+                const lines = [
+                    '======================================',
+                    'MONTE CARLO RETIREMENT SIMULATOR',
+                    '======================================',
+                    `Data: ${date}`,
+                    `Seed: ${results.seed}`,
+                    `Modo: ${mode}`,
+                    '',
+                    '--- PARÂMETROS DE ENTRADA ---',
+                    '',
+                    'Portfólio & Saque:',
+                    `  Patrimônio USD: $${params.initialPortfolioUSD.toLocaleString('en-US')}`,
+                    `  Patrimônio BRL (renda fixa): ${fmt(params.initialPortfolioBRL)}`,
+                    `  Câmbio USD/BRL: ${params.initialFX.toFixed(2)}`,
+                    `  Taxa de Saque (SWR): ${params.withdrawalRate}%`,
+                    `  Horizonte: ${params.years} anos`,
+                    `  Iterações: ${params.iterations}`,
+                    '',
+                    'Retornos & Volatilidade:',
+                    `  Retorno Renda Variável: ${params.equityReturn}%`,
+                    `  Volatilidade RV: ${params.equityVolatility}%`,
+                    `  Retorno Renda Fixa: ${params.bondReturn}%`,
+                    `  Volatilidade RF: ${params.bondVolatility}%`,
+                    `  Inflação: ${params.inflation}%`,
+                    '',
+                    'Estratégia Tenda:',
+                    `  Alocação Inicial RF: ${params.tentInitialBondPercent}%`,
+                    `  Duração Transição: ${params.tentDuration} anos`,
+                    `  Alocação Alvo RF: ${params.targetBondPercent}%`,
+                    '',
+                    'Regras Guyton-Klinger:',
+                    `  Limiar Preservação: ${(params.preservationThreshold * 100).toFixed(0)}%`,
+                    `  Limiar Prosperidade: ${(params.prosperityThreshold * 100).toFixed(0)}%`,
+                    `  Ajuste: ${(params.adjustmentPercent * 100).toFixed(0)}%`,
+                    `  Regra de Inflação: ${params.applyInflationRule ? 'Sim' : 'Não'}`,
+                    '',
+                    'Saque Mínimo:',
+                    `  Usar Saque Mínimo: ${params.useMinimumWithdrawal ? 'Sim' : 'Não'}`,
+                    `  Valor Mínimo: ${fmt(params.minimumWithdrawalBRL)}`,
+                    '',
+                    'Bucket Strategy:',
+                    `  Usar Bucket Strategy: ${params.useBucketStrategy ? 'Sim' : 'Não'}`,
+                    `  Anos de Bucket: ${params.bucketYears}`,
+                    '',
+                    'Modelagem Avançada:',
+                    `  Distribuição T-Student: ${params.useStudentT ? 'Sim' : 'Não'}`,
+                    `  Graus de Liberdade: ${params.degreesOfFreedom}`,
+                    `  Correlação Dinâmica: ${params.useDynamicCorrelation ? 'Sim' : 'Não'}`,
+                    `  Correlação Base: ${params.baseCorrelation}`,
+                    `  Multiplicador Estresse: ${params.stressCorrelationMultiplier}x`,
+                    `  Modelo IPCA: ${params.useIPCAModel ? 'Sim' : 'Não'}`,
+                    `  IPCA Esperada: ${params.expectedIPCA}%`,
+                    `  Volatilidade IPCA: ${params.ipcaVolatility}%`,
+                    `  Spread Real: ${params.realSpread}%`,
+                    `  Modelo Tributário: ${params.useTaxModel ? 'Sim' : 'Não'}`,
+                    `  Imposto RV: ${params.equityTaxRate}%`,
+                    `  Imposto RF: ${params.fixedIncomeTaxRate}%`,
+                    `  Restrição de Sequência: ${params.useSequenceConstraint ? 'Sim' : 'Não'}`,
+                    `  Máx Sequência Negativa: ${params.maxNegativeSequence} anos`,
+                    '',
+                    'Modo Objetivo:',
+                    `  Modo: ${params.objectiveMode === 'preservation' ? 'Preservação' : 'Consumo Máximo (Die With Zero)'}`,
+                    `  Taxa de Sucesso Alvo: ${params.targetSuccessRate}%`,
+                    `  Saldo Final Alvo: ${fmt(params.targetEndBalance)}`,
+                    `  Tolerância Otimizador: ${params.optimizerTolerance}%`,
+                    '',
+                    '--- RESULTADOS ---',
+                    '',
+                    `Taxa de Sobrevivência: ${results.survivalRate.toFixed(1)}%`,
+                    `Iterações: ${results.totalSimulations}`,
+                    `Falhas: ${results.failedSimulations}`,
+                    `Saque Médio Anual: ${fmt(results.overallMeanWithdrawal)}`,
+                    `Saque Mediano Anual: ${fmt(results.overallMedianWithdrawal)}`,
+                    `Pior Saque: ${fmt(results.worstWithdrawal)}`,
+                    `Patrimônio Final Mediano: ${fmt(results.medianFinalPortfolio)}`,
+                    `Patrimônio Final Melhor: ${fmt(results.bestFinalPortfolio)}`,
+                    '',
+                    'Percentis do Patrimônio Final:',
+                    `  P10: ${fmt(p.p10[lastIdx])}`,
+                    `  P25: ${fmt(p.p25[lastIdx])}`,
+                    `  P50: ${fmt(p.p50[lastIdx])}`,
+                    `  P75: ${fmt(p.p75[lastIdx])}`,
+                    `  P90: ${fmt(p.p90[lastIdx])}`,
+                    '',
+                    'Regras Guyton-Klinger Disparadas:',
+                    `  Preservação: ${((results.ruleStats.preservation / totalYearDecisions) * 100).toFixed(1)}%`,
+                    `  Prosperidade: ${((results.ruleStats.prosperity / totalYearDecisions) * 100).toFixed(1)}%`,
+                    `  Inflação Suprimida: ${((results.ruleStats.inflationSkip / totalYearDecisions) * 100).toFixed(1)}%`,
+                ];
+
+                if (results.avgFailureYear !== null) {
+                    lines.push('');
+                    lines.push(`Ano Médio de Falha: ${results.avgFailureYear.toFixed(1)}`);
+                }
+
+                if (optimizationResult) {
+                    lines.push('');
+                    lines.push('Otimizador (Consumo Máximo):');
+                    lines.push(`  Taxa Ótima: ${optimizationResult.optimalSWR.toFixed(2)}%`);
+                    lines.push(`  Saque Mensal: ${fmt(optimizationResult.monthlyWithdrawalBRL)}`);
+                    lines.push(`  Saque Anual: ${fmt(optimizationResult.annualWithdrawalBRL)}`);
+                    lines.push(`  Sobrevivência Validada: ${optimizationResult.survivalRate.toFixed(1)}%`);
+                    lines.push(`  Saldo Final Mediano: ${fmt(optimizationResult.medianEndBalance)}`);
+                    lines.push(`  Simulações Totais: ${optimizationResult.totalSimulations}`);
+                    lines.push(`  Tempo de Cálculo: ${(optimizationResult.computeTimeMs / 1000).toFixed(1)}s`);
+                }
+
+                lines.push('');
+                lines.push('======================================');
+                lines.push('Gerado por Monte Carlo Retirement Simulator');
+                lines.push('https://github.com/alexfmonteiro/monte-carlo-retirement-simulator');
+
+                const text = lines.join('\n');
+                const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `simulacao-monte-carlo-${results.seed}.txt`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            };
+
             return (
                 <div className="min-h-screen flex">
                     {/* Sidebar */}
@@ -2803,6 +2940,15 @@
                                 <h1 className="text-xl font-bold">Monte Carlo</h1>
                             </div>
                             <p className="text-xs text-gray-500">Simulador de Aposentadoria SWR</p>
+                            <a
+                                href="https://github.com/alexfmonteiro/monte-carlo-retirement-simulator"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="flex items-center gap-1 text-xs text-gray-500 hover:text-accent transition-colors mt-1"
+                            >
+                                <Icon name="Github" size={14} />
+                                <span>GitHub</span>
+                            </a>
                         </div>
 
                         {/* Objective Mode Selector */}
@@ -3734,16 +3880,26 @@
                                             </>
                                         )}
                                     </div>
-                                    <button
-                                        onClick={() => {
-                                            navigator.clipboard.writeText(results.seed.toString());
-                                        }}
-                                        className="text-gray-500 hover:text-accent transition-colors flex items-center gap-1"
-                                        title="Copiar seed"
-                                    >
-                                        <Icon name="Copy" size={14} />
-                                        <span>Copiar</span>
-                                    </button>
+                                    <div className="flex items-center gap-3">
+                                        <button
+                                            onClick={() => {
+                                                navigator.clipboard.writeText(results.seed.toString());
+                                            }}
+                                            className="text-gray-500 hover:text-accent transition-colors flex items-center gap-1"
+                                            title="Copiar seed"
+                                        >
+                                            <Icon name="Copy" size={14} />
+                                            <span>Copiar</span>
+                                        </button>
+                                        <button
+                                            onClick={downloadExport}
+                                            className="text-gray-500 hover:text-accent transition-colors flex items-center gap-1"
+                                            title="Exportar simulação (.txt)"
+                                        >
+                                            <Icon name="Download" size={14} />
+                                            <span>Exportar</span>
+                                        </button>
+                                    </div>
                                 </div>
 
                                 {/* Header Stats */}
