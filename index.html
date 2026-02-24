@@ -374,7 +374,14 @@
                 const initialWithdrawalBRL = totalInitialPortfolioBRL * (withdrawalRate / 100);
                 let currentWithdrawalUSD = initialWithdrawalBRL / initialFX;
                 let initialWithdrawalRate = withdrawalRate / 100;
-                
+
+                // Target BRL fraction for rebalancing-aware bridge withdrawals.
+                // Derived from the initial portfolio split so the simulation always
+                // withdraws from whichever bucket is above its original weight.
+                const targetBRLFraction = totalInitialPortfolioBRL > 0
+                    ? initialPortfolioBRL / totalInitialPortfolioBRL
+                    : 0;
+
                 let previousReturn = 0;
                 
                 // Track consecutive negative returns for constraint
@@ -508,17 +515,20 @@
                     let taxPaid = 0;
 
                     if (useGuaranteedIncome && year < guaranteedIncomeStartYear) {
-                        // === BRIDGE PHASE: BRL portfolio is the primary withdrawal source ===
-                        // USD equity and bonds grow undisturbed (or minimally tapped if bridge fails)
+                        // === BRIDGE PHASE: rebalancing-aware withdrawal ===
+                        // Withdraw from whichever bucket (BRL or USD) is above its initial target
+                        // allocation weight. For a short bridge BRL stays dominant; for a long bridge
+                        // this prevents either bucket from depleting alone and captures equity gains.
                         equityPortionUSD *= (1 + equityReturnYear);
                         bondPortionUSD *= (1 + bondReturnYear);
 
-                        withdrawalSource = 'brl_bridge';
+                        // G-K sees the full portfolio (BRL + USD) to avoid phantom Preservation triggers
+                        const usdPortfolioTotal = equityPortionUSD + bondPortionUSD;
+                        const fullPortfolioForGK = usdPortfolioTotal + portfolioBRLFixed / currentFX;
 
-                        const totalPortfolioUSD = equityPortionUSD + bondPortionUSD;
                         const gkResult = this.applyGuytonKlinger(
                             currentWithdrawalUSD,
-                            totalPortfolioUSD,
+                            fullPortfolioForGK,
                             initialWithdrawalRate,
                             previousReturn,
                             inflation / 100
@@ -530,29 +540,62 @@
                             ? Math.max(recommendedWithdrawalUSD, effectiveMinimumWithdrawalUSD)
                             : recommendedWithdrawalUSD;
 
-                        taxPaid = this.calculateTax(actualWithdrawalUSD, gainRatio, bondAllocation);
+                        // Determine current BRL weight vs the initial target weight
+                        const totalPortfolioInBRL = portfolioBRLFixed + usdPortfolioTotal * currentFX;
+                        const currentBRLFraction = totalPortfolioInBRL > 0
+                            ? portfolioBRLFixed / totalPortfolioInBRL
+                            : 0;
 
-                        // Try to cover from BRL bridge first
-                        const totalNeededBRL = (actualWithdrawalUSD + taxPaid) * currentFX;
-                        if (portfolioBRLFixed >= totalNeededBRL) {
-                            portfolioBRLFixed -= totalNeededBRL;
+                        if (currentBRLFraction >= targetBRLFraction) {
+                            // BRL is at or above target weight → withdraw from BRL (pure bond tax)
+                            withdrawalSource = 'brl_bridge';
+                            taxPaid = this.calculateTax(actualWithdrawalUSD, gainRatio, 1.0);
+                            const totalNeededBRL = (actualWithdrawalUSD + taxPaid) * currentFX;
+
+                            if (portfolioBRLFixed >= totalNeededBRL) {
+                                portfolioBRLFixed -= totalNeededBRL;
+                            } else {
+                                // BRL depleted — cascade remainder to USD (bonds first, then equity)
+                                const remainingUSD = (totalNeededBRL - portfolioBRLFixed) / currentFX;
+                                portfolioBRLFixed = 0;
+                                withdrawalSource = 'bridge_brl_to_usd';
+                                bondPortionUSD -= remainingUSD;
+                                if (bondPortionUSD < 0) {
+                                    equityPortionUSD += bondPortionUSD; // bondPortionUSD is negative
+                                    bondPortionUSD = 0;
+                                }
+                            }
                         } else {
-                            // Bridge exhausted — cascade remainder to USD portfolio
-                            const remainingBRL = totalNeededBRL - portfolioBRLFixed;
+                            // USD is above target weight → withdraw from USD to rebalance
+                            withdrawalSource = 'usd_rebalance';
+                            taxPaid = this.calculateTax(actualWithdrawalUSD, gainRatio, bondAllocation);
+                            const totalWithdrawalUSD = actualWithdrawalUSD + taxPaid;
+                            const newUsdTotal = usdPortfolioTotal - totalWithdrawalUSD;
+
+                            if (newUsdTotal >= 0) {
+                                // Scale both portions proportionally (preserves internal allocation)
+                                const ratio = newUsdTotal / usdPortfolioTotal;
+                                equityPortionUSD *= ratio;
+                                bondPortionUSD *= ratio;
+                            } else {
+                                // USD fully depleted — cascade remainder to BRL
+                                equityPortionUSD = 0;
+                                bondPortionUSD = 0;
+                                portfolioBRLFixed -= (-newUsdTotal) * currentFX;
+                                withdrawalSource = 'bridge_usd_to_brl';
+                            }
+                        }
+
+                        // Track the first year the BRL bridge runs to zero
+                        if (portfolioBRLFixed <= 0) {
                             portfolioBRLFixed = 0;
                             if (bridgeExhaustedYear === null) bridgeExhaustedYear = year;
-                            withdrawalSource = 'bridge_exhausted';
-                            const remainingUSD = remainingBRL / currentFX;
-                            bondPortionUSD -= remainingUSD;
-                            if (bondPortionUSD < 0) {
-                                equityPortionUSD += bondPortionUSD; // bondPortionUSD is negative
-                                bondPortionUSD = 0;
-                            }
                         }
 
                         portfolioUSD = equityPortionUSD + bondPortionUSD;
                         bondAllocation = portfolioUSD > 0 ? bondPortionUSD / portfolioUSD : 0;
                         equityAllocation = 1 - bondAllocation;
+                        previousReturn = equityReturnYear; // track equity return for G-K inflation rule
                         currentWithdrawalUSD = recommendedWithdrawalUSD;
 
                     } else if (useBucketStrategy && year <= bucketYears) {
