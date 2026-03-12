@@ -2,6 +2,38 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Token Savings Rule
+
+When reading files or web content for parsing, extraction, summarization, or pattern searching
+(not for code reasoning/editing), delegate to `freeloader` via Bash instead of using
+Read/Grep/WebFetch. This applies even mid-task (debugging, troubleshooting, etc.).
+
+**Use freeloader for:**
+
+```bash
+# Log / output analysis
+freeloader "find all ERROR entries with timestamps and messages" /var/log/app.log
+bun test 2>&1 | freeloader "did tests pass? list any failures with their names"
+npm run build 2>&1 | freeloader "any errors or warnings? be brief"
+
+# Config / data extraction
+freeloader "list all database hosts and ports" config.yaml
+freeloader "find all rows where status is 'failed', list their IDs" data.csv
+
+# Web content
+curl -s '<url>' | freeloader '<what you need>'
+
+# Git / diff review
+git diff | freeloader "what changed? any risks or breaking changes?"
+git log --oneline -50 | freeloader "summarize recent work in 3 bullet points"
+
+# API responses
+curl -s https://api.example.com/data | freeloader "extract the relevant fields as JSON"
+```
+
+**Only use Read/Grep directly** when you need to reason about code structure, understand logic,
+or make edits. For everything else — freeloader.
+
 ## Project Overview
 
 Monte Carlo retirement simulator for Brazilian investors with internationally-diversified portfolios (USD-denominated ETFs). A pure frontend application with no backend dependencies, using React 18, Babel (in-browser JSX), Tailwind CSS, and Chart.js for visualizations. Handles Brazilian-specific complexity: FX risk, IPCA inflation modeling, Irish ETF taxation, and dynamic BRL/USD correlation during market stress.
