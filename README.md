@@ -8,6 +8,7 @@ Um simulador avançado de aposentadoria baseado em simulações de Monte Carlo, 
 
 ## Índice
 
+- [Aplicativos Disponíveis](#aplicativos-disponíveis)
 - [Visão Geral](#visão-geral)
 - [Funcionalidades](#funcionalidades)
 - [Interface: Modo Simples e Avançado](#interface-modo-simples-e-avançado)
@@ -18,6 +19,19 @@ Um simulador avançado de aposentadoria baseado em simulações de Monte Carlo, 
 - [Instalação e Uso](#instalação-e-uso)
 - [Metodologia Técnica](#metodologia-técnica)
 - [Referências Acadêmicas](#referências-acadêmicas)
+
+---
+
+## Aplicativos Disponíveis
+
+Este repositório contém dois simuladores complementares:
+
+| Aplicativo | URL | Descrição |
+|------------|-----|-----------|
+| **SWR Clássico** | [`index.html`](https://alexfmonteiro.github.io/monte-carlo-retirement-simulator/) | Simulador principal com Guyton-Klinger, Bucket Strategy, otimizador Die With Zero e análise de stress completa |
+| **Yale Endowment** | [`endowment.html`](https://alexfmonteiro.github.io/monte-carlo-retirement-simulator/endowment.html) | Comparativo entre três estratégias: Endowment (Yale), SWR Fixo 4% e Guyton-Klinger em uma única tela |
+
+Ambos os aplicativos incluem suporte a benefício INSS, entrada dual BRL/USD e modelagem brasileira completa.
 
 ---
 
@@ -59,6 +73,17 @@ A clássica "Regra dos 4%" foi desenvolvida para o mercado americano com condiç
 | **Bucket Strategy** | Proteção contra sequence of returns risk (5 anos em RF) |
 | **Rebalanceamento Inteligente** | Saque de RV quando acima do alvo para rebalancear |
 | **Saque Mínimo Garantido** | Nunca sacar menos que o necessário para sobreviver |
+| **Benefício INSS** | Renda previdenciária reduz o saque do portfólio a partir da idade elegível; reajustada pelo IPCA simulado |
+
+### Simulador Yale Endowment (`endowment.html`)
+
+| Funcionalidade | Descrição |
+|----------------|-----------|
+| **Estratégia Endowment** | Fórmula Yale: pondera retorno alvo e valor de mercado anterior para suavizar saques |
+| **Comparativo 3 Estratégias** | Exibe lado a lado Endowment, SWR Fixo 4% e Guyton-Klinger na mesma simulação |
+| **Tabela de Métricas** | Mediana, média, pior saque, taxa de sucesso e patrimônio final por estratégia, com destaque de melhor/pior |
+| **Gráfico de Evolução** | Mediana dos saques anuais para cada estratégia ao longo do horizonte |
+| **Fan Chart** | Evolução do portfólio em percentis (P10/P25/P50/P75/P90) por estratégia |
 
 ### Otimizador de Consumo Máximo (Die With Zero)
 
@@ -86,8 +111,9 @@ A clássica "Regra dos 4%" foi desenvolvida para o mercado americano com condiç
 | **Layout Responsivo** | Layout adaptativo para desktop, tablet e mobile (breakpoint lg: 1024px) |
 | **Entrada Dual USD/BRL** | Todos os campos monetários aceitam entrada em USD ou BRL com conversão automática |
 | **Tooltips Detalhados** | Clique no ícone (?) para explicações completas de cada parâmetro em português |
-| **Exportar Resultados** | Exporta relatório completo em texto com todos os parâmetros e resultados |
+| **Exportar Resultados** | Exporta relatório completo em texto com todos os parâmetros, incluindo configurações de INSS |
 | **Resumo Calculado** | Exibe em tempo real: alocação RV/RF, saques anuais/mensais, tamanho do bucket |
+| **Exibição Mensal** | Cards de saque médio e mediano mostram equivalente mensal para facilitar comparação com renda |
 
 ---
 
@@ -229,6 +255,20 @@ O otimizador usa **bissecção em duas fases**:
 
 > **Nota**: O otimizador reutiliza TODOS os parâmetros configurados (G-K, Buckets, Tenda, T-Student, correlação dinâmica, impostos). Ele apenas busca a `withdrawalRate` ideal — não altera nenhuma regra de simulação.
 
+### Estratégia Yale Endowment
+
+A fórmula Yale (desenvolvida por David Swensen para o endowment da Universidade Yale) suaviza os saques ao ponderar dois componentes:
+
+```
+Saque_ano_t = α × (Saque_ano_(t-1) × (1 + Inflação)) + (1 - α) × (Taxa_alvo × Portfólio_ano_(t-1))
+```
+
+- **α (peso de suavização)**: Quanto do saque anterior influencia o atual (típico: 0.7)
+- **Taxa alvo**: Percentual anual do portfólio a sacar (típico: 4-5%)
+- **Efeito**: Suaviza a volatilidade dos saques — anos bons não geram aumentos abruptos, e anos ruins não forçam cortes drásticos
+
+O simulador compara a estratégia Endowment com SWR Fixo 4% e Guyton-Klinger na mesma tela, permitindo avaliar o trade-off entre estabilidade de renda (Endowment), simplicidade (SWR Fixo) e flexibilidade adaptativa (G-K).
+
 ### Correlação Dinâmica BRL/USD
 
 Em condições normais, a correlação entre retornos de RV e câmbio é aproximadamente -0.4 (quando bolsa cai, dólar sobe). Mas em crises extremas:
@@ -320,7 +360,24 @@ A implementação é um **glide path linear** — a alocação de RF decresce li
 | **Usar Mínimo** | Ativar saque mínimo garantido | Não |
 | **Valor Mínimo** | Saque mínimo anual em BRL | R$ 200.000 |
 
-> **Importante**: O saque NUNCA será menor que o mínimo definido, mesmo que isso acelere a depleção do portfólio.
+> **Importante**: O saque NUNCA será menor que o mínimo definido, mesmo que isso acelere a depleção do portfólio. Com INSS ativo, o mínimo se aplica ao saque do portfólio após o abatimento da renda previdenciária.
+
+### Benefício INSS
+
+| Parâmetro | Descrição | Default |
+|-----------|-----------|---------|
+| **Receber Benefício INSS** | Ativar modelagem de renda previdenciária | Não |
+| **Idade Atual (Aposentadoria)** | Sua idade no ano 1 da simulação | 60 anos |
+| **Idade de Início do INSS** | Idade de elegibilidade ao benefício | 65 anos |
+| **Benefício Mensal INSS** | Valor mensal bruto em BRL | R$ 3.000 |
+
+> **Como funciona**: O benefício mensal é convertido para anual e abatido do saque necessário do portfólio. O valor é corrigido pelo IPCA simulado a cada ano — se o IPCA acumulado cresce, o benefício em BRL cresce na mesma proporção. O INSS é tributado na fonte e não afeta o cálculo de impostos sobre o portfólio.
+>
+> **Regras de elegibilidade (2024)**: 65 anos para homens com 20 anos de contribuição; 62 anos para mulheres com 15 anos de contribuição.
+>
+> **Impacto nos saques**: Enquanto o INSS não estiver ativo (antes da idade de elegibilidade), os saques do portfólio são normais. Após o início, o portfólio financia apenas a diferença entre o gasto total e a renda INSS. Se o INSS cobre integralmente o mínimo necessário, nenhum mínimo é aplicado ao portfólio (a renda total ainda atinge o piso).
+>
+> **Métricas de renda total**: As métricas de saque (pior saque, média, mediana, saques por período) refletem a renda total recebida — saque do portfólio + renda INSS — para representar o padrão de vida real.
 
 ### Modelagem Avançada
 
@@ -412,6 +469,18 @@ Mostra bandas de percentis ao longo do tempo:
 - **P25**: Quartil inferior
 - **P10** (linha inferior): 10% piores cenários
 
+### Gráfico: Evolução dos Saques (index.html)
+
+Exibe a evolução dos saques médios ao longo dos anos com as seguintes séries:
+- **Saque Médio** (azul sólido): Média dos saques anuais do portfólio em todos os cenários
+- **Saque Mediano** (azul tracejado): Mediana dos saques, menos sensível a outliers
+- **Saque Mínimo** (vermelho): Linha de referência do mínimo configurado (se ativo)
+- **Renda INSS** (âmbar tracejado): Média da renda INSS ao longo dos anos, iniciando no ano de elegibilidade (exibida apenas quando INSS está ativo)
+
+### Cards: Saque Médio e Mediano
+
+Os cards de saque exibem o valor anual em destaque e o **equivalente mensal** em subtítulo (`~R$ Xk/mês`), facilitando a comparação com renda mensal e custos de vida.
+
 ### Seção: Análise de Stress
 
 - **Duração dos Períodos de Stress**: Quanto tempo consecutivo o saque mínimo foi necessário
@@ -425,7 +494,8 @@ Mostra bandas de percentis ao longo do tempo:
 
 ### Uso Online (Recomendado)
 
-Simplesmente acesse: **https://alexfmonteiro.github.io/monte-carlo-retirement-simulator/**
+- **SWR Clássico**: **https://alexfmonteiro.github.io/monte-carlo-retirement-simulator/**
+- **Yale Endowment**: **https://alexfmonteiro.github.io/monte-carlo-retirement-simulator/endowment.html**
 
 A interface é responsiva e funciona em desktop, tablet e celular.
 
@@ -439,10 +509,11 @@ git clone https://github.com/alexfmonteiro/monte-carlo-retirement-simulator.git
 cd monte-carlo-retirement-simulator
 
 # Abra no navegador
-open index.html
+open index.html          # SWR Clássico
+open endowment.html      # Yale Endowment Comparativo
 # ou
 python -m http.server 8000
-# e acesse http://localhost:8000
+# e acesse http://localhost:8000 (SWR) ou http://localhost:8000/endowment.html (Yale)
 ```
 
 ### Executando os Testes
