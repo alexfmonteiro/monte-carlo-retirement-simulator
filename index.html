@@ -421,6 +421,10 @@
                         bucketYears,
                         useMinimumWithdrawal,
                         minimumWithdrawalBRL,
+                        useINSS,
+                        currentAge,
+                        inssStartAge,
+                        inssMonthlyBRL,
                     } = this.params;
 
                     // USD portfolio (equity + bonds, subject to FX variation)
@@ -451,6 +455,7 @@
                     const initialWithdrawalRate = withdrawalRate / 100;
 
                     let previousReturn = 0;
+                    let cumulativeIpcaFactor = 1.0;
 
                     // Track consecutive negative returns for constraint
                     let consecutiveNegativeYears = 0;
@@ -486,6 +491,7 @@
                             },
                         ],
                         withdrawalSource: ["initial"],
+                        inssIncomeBRL: [0],
                     };
 
                     for (let year = 1; year <= years; year++) {
@@ -507,6 +513,7 @@
                                 percentExtra: 0,
                             });
                             history.withdrawalSource.push("none");
+                            history.inssIncomeBRL.push(0);
                             continue;
                         }
 
@@ -538,6 +545,7 @@
 
                         // Generate IPCA for the year (correlated with equity if using IPCA model)
                         const ipcaYear = this.generateIPCA(equityReturnYear);
+                        cumulativeIpcaFactor *= (1 + ipcaYear);
 
                         // Generate bond return (IPCA + Real Spread if using IPCA model)
                         const bondReturnYear =
@@ -561,10 +569,17 @@
                                 ? minimumWithdrawalBRL / currentFX
                                 : 0;
 
+                        // INSS income for this year
+                        const ageThisYear = currentAge + year - 1;
+                        const inssActive = useINSS && inssMonthlyBRL > 0 && ageThisYear >= inssStartAge;
+                        const annualINSSUSD = inssActive ? (inssMonthlyBRL * 12 * cumulativeIpcaFactor) / currentFX : 0;
+                        const annualINSSBRL = annualINSSUSD * currentFX;
+
                         // Bucket Strategy: In bucket years, withdrawals come from bonds only
                         let withdrawalSource = "mixed";
                         let recommendedWithdrawalUSD = currentWithdrawalUSD;
                         let actualWithdrawalUSD = currentWithdrawalUSD;
+                        let portfolioWithdrawalUSD = currentWithdrawalUSD;
                         let gkRuleApplied = null;
                         let taxPaid = 0;
 
@@ -588,13 +603,12 @@
                             recommendedWithdrawalUSD = gkResult.withdrawal;
                             gkRuleApplied = gkResult.ruleApplied;
 
-                            // ENFORCE MINIMUM: actual withdrawal is MAX of recommended and minimum
+                            // ENFORCE MINIMUM: INSS reduces portfolio withdrawal; minimum applies to portfolio portion
+                            portfolioWithdrawalUSD = Math.max(0, recommendedWithdrawalUSD - annualINSSUSD);
+                            const effectiveMinimumUSD_b = Math.max(0, minimumWithdrawalUSD - annualINSSUSD);
                             actualWithdrawalUSD = useMinimumWithdrawal
-                                ? Math.max(
-                                      recommendedWithdrawalUSD,
-                                      minimumWithdrawalUSD,
-                                  )
-                                : recommendedWithdrawalUSD;
+                                ? Math.max(portfolioWithdrawalUSD, effectiveMinimumUSD_b)
+                                : portfolioWithdrawalUSD;
 
                             // Calculate tax on withdrawal
                             taxPaid = this.calculateTax(
@@ -689,13 +703,12 @@
                             recommendedWithdrawalUSD = gkResult.withdrawal;
                             gkRuleApplied = gkResult.ruleApplied;
 
-                            // ENFORCE MINIMUM: actual withdrawal is MAX of recommended and minimum
+                            // ENFORCE MINIMUM: INSS reduces portfolio withdrawal; minimum applies to portfolio portion
+                            portfolioWithdrawalUSD = Math.max(0, recommendedWithdrawalUSD - annualINSSUSD);
+                            const effectiveMinimumUSD_s = Math.max(0, minimumWithdrawalUSD - annualINSSUSD);
                             actualWithdrawalUSD = useMinimumWithdrawal
-                                ? Math.max(
-                                      recommendedWithdrawalUSD,
-                                      minimumWithdrawalUSD,
-                                  )
-                                : recommendedWithdrawalUSD;
+                                ? Math.max(portfolioWithdrawalUSD, effectiveMinimumUSD_s)
+                                : portfolioWithdrawalUSD;
 
                             // Calculate tax on withdrawal
                             taxPaid = this.calculateTax(
@@ -749,7 +762,7 @@
                             useMinimumWithdrawal &&
                             minimumWithdrawalBRL > 0 &&
                             actualWithdrawalUSD >
-                                recommendedWithdrawalUSD * 1.001; // Small tolerance for float comparison
+                                portfolioWithdrawalUSD * 1.001; // Small tolerance for float comparison
 
                         const extraWithdrawnBRL = minimumWasEnforced
                             ? actualWithdrawalBRL - recommendedWithdrawalBRL
@@ -839,6 +852,7 @@
                         history.rulesApplied.push(gkRuleApplied);
                         history.minimumEnforced.push(minimumWasEnforced);
                         history.withdrawalSource.push(withdrawalSource);
+                        history.inssIncomeBRL.push(annualINSSBRL);
                     }
 
                     // Close any open stress period at end of simulation
@@ -915,6 +929,7 @@
                     // Track mean withdrawals per year
                     const withdrawalMeans = [];
                     const withdrawalMedians = [];
+                    const inssIncomeMeans = [];
 
                     // Track recommended vs actual withdrawal
                     const recommendedWithdrawalMeans = [];
@@ -1002,6 +1017,9 @@
 
                         withdrawalMeans.push(mean);
                         withdrawalMedians.push(median);
+
+                        const inssValues = simulations.map(s => (s.inssIncomeBRL ? s.inssIncomeBRL[year] || 0 : 0));
+                        inssIncomeMeans.push(inssValues.reduce((a, b) => a + b, 0) / inssValues.length);
 
                         // Recommended withdrawal mean
                         const recommendedMean =
@@ -1237,11 +1255,16 @@
                         (s) => s.failed && s.failureType === "depletion",
                     ).length;
 
-                    // Worst case withdrawal (excluding zeros from failed scenarios)
+                    // Total income per year = portfolio withdrawal + INSS (what the user actually receives)
+                    const totalIncome = (s, i) =>
+                        (s.withdrawalBRL[i] || 0) + (s.inssIncomeBRL ? s.inssIncomeBRL[i] || 0 : 0);
+
+                    // Worst case total income (excluding zero-income years from failed scenarios)
                     const allMinWithdrawals = simulations
-                        .map((s) =>
-                            Math.min(...s.withdrawalBRL.filter((w) => w > 0)),
-                        )
+                        .map((s) => {
+                            const incomes = s.withdrawalBRL.map((_, i) => totalIncome(s, i)).filter((v) => v > 0);
+                            return incomes.length > 0 ? Math.min(...incomes) : Infinity;
+                        })
                         .filter((w) => w > 0 && isFinite(w));
                     const worstWithdrawal =
                         allMinWithdrawals.length > 0
@@ -1257,9 +1280,9 @@
                         finalPortfolios[Math.floor(numSims * 0.5)];
                     const bestFinal = finalPortfolios[numSims - 1];
 
-                    // Average withdrawal across all years and simulations (excluding zeros)
+                    // Average total income across all years and simulations (excluding zeros)
                     const allWithdrawals = simulations.flatMap((s) =>
-                        s.withdrawalBRL.filter((w) => w > 0),
+                        s.withdrawalBRL.map((_, i) => totalIncome(s, i)).filter((v) => v > 0),
                     );
                     allWithdrawals.sort((a, b) => a - b);
                     const overallMeanWithdrawal =
@@ -1281,15 +1304,20 @@
                     const earlyWithdrawals = simulations.flatMap((s) =>
                         s.withdrawalBRL
                             .slice(0, earlyYears)
-                            .filter((w) => w > 0),
+                            .map((_, i) => totalIncome(s, i))
+                            .filter((v) => v > 0),
                     );
                     const midWithdrawals = simulations.flatMap((s) =>
                         s.withdrawalBRL
                             .slice(earlyYears, midYears)
-                            .filter((w) => w > 0),
+                            .map((_, i) => totalIncome(s, earlyYears + i))
+                            .filter((v) => v > 0),
                     );
                     const lateWithdrawals = simulations.flatMap((s) =>
-                        s.withdrawalBRL.slice(midYears).filter((w) => w > 0),
+                        s.withdrawalBRL
+                            .slice(midYears)
+                            .map((_, i) => totalIncome(s, midYears + i))
+                            .filter((v) => v > 0),
                     );
 
                     const periodStats = {
@@ -1384,6 +1412,7 @@
                         withdrawalPercentiles,
                         withdrawalMeans,
                         withdrawalMedians,
+                        inssIncomeMeans,
                         recommendedWithdrawalMeans,
                         stressChartData,
                         survivalRate,
@@ -2057,6 +2086,8 @@
                 years,
                 minimumWithdrawal,
                 useMinimum,
+                inssIncomeMeans,
+                useINSS,
             }) => {
                 const chartRef = useRef(null);
                 const canvasRef = useRef(null);
@@ -2105,6 +2136,20 @@
                             borderColor: "#ef4444",
                             borderWidth: 2,
                             borderDash: [10, 5],
+                            pointRadius: 0,
+                            fill: false,
+                        });
+                    }
+
+                    // Add INSS income line if enabled
+                    if (useINSS && inssIncomeMeans && inssIncomeMeans.some(v => v > 0)) {
+                        datasets.push({
+                            label: 'Renda INSS (média)',
+                            data: inssIncomeMeans,
+                            borderColor: '#f59e0b',
+                            backgroundColor: 'rgba(245, 158, 11, 0.1)',
+                            borderWidth: 2,
+                            borderDash: [6, 3],
                             pointRadius: 0,
                             fill: false,
                         });
@@ -2176,7 +2221,7 @@
                             chartRef.current.destroy();
                         }
                     };
-                }, [means, medians, years, minimumWithdrawal, useMinimum]);
+                }, [means, medians, years, minimumWithdrawal, useMinimum, inssIncomeMeans, useINSS]);
 
                 return (
                     <div className="chart-container">
@@ -3522,6 +3567,10 @@
                     applyInflationRule: true,
                     minimumWithdrawalBRL: 120000,
                     useMinimumWithdrawal: false,
+                    useINSS: false,
+                    currentAge: 60,
+                    inssStartAge: 65,
+                    inssMonthlyBRL: 3000,
                     bucketYears: 5,
                     useBucketStrategy: true,
                     // Advanced modeling parameters
@@ -3875,6 +3924,17 @@
                         "Saque Mínimo:",
                         `  Usar Saque Mínimo: ${params.useMinimumWithdrawal ? "Sim" : "Não"}`,
                         `  Valor Mínimo: ${fmt(params.minimumWithdrawalBRL)}`,
+                        "",
+                        "Benefício INSS:",
+                        `  Receber INSS: ${params.useINSS ? "Sim" : "Não"}`,
+                        ...(params.useINSS
+                            ? [
+                                  `  Idade Atual: ${params.currentAge} anos`,
+                                  `  Idade de Início: ${params.inssStartAge} anos`,
+                                  `  Benefício Mensal: ${fmt(params.inssMonthlyBRL)}`,
+                                  `  Início no Ano: ${params.inssStartAge - params.currentAge + 1} (corrigido pelo IPCA simulado)`,
+                              ]
+                            : []),
                         "",
                         "Bucket Strategy:",
                         `  Usar Bucket Strategy: ${params.useBucketStrategy ? "Sim" : "Não"}`,
@@ -4566,6 +4626,40 @@
                                                 "✓ Desativado: saques seguem apenas as regras de G-K (máxima preservação do portfólio)"
                                             )}
                                         </div>
+                                    </div>
+
+                                    {/* INSS / Previdência Social */}
+                                    <div className="mb-6">
+                                        <h2 className="text-sm font-semibold text-gray-300 mb-3 flex items-center gap-2">
+                                            <Icon name="Landmark" size={16} /> Benefício INSS
+                                        </h2>
+                                        <Toggle label="Receber Benefício INSS" checked={params.useINSS}
+                                            onChange={(v) => updateParam('useINSS', v)} />
+                                        {params.useINSS && <>
+                                            <Input label="Idade Atual (Aposentadoria)" value={params.currentAge}
+                                                onChange={(v) => updateParam('currentAge', Math.round(v))}
+                                                unit="anos" min={40} max={80} step={1}
+                                                tooltip="Sua idade no início da simulação (ano 1). Usada para calcular em que ano o INSS começa." />
+                                            <Input label="Idade de Início do INSS" value={params.inssStartAge}
+                                                onChange={(v) => updateParam('inssStartAge', Math.round(v))}
+                                                unit="anos" min={params.currentAge} max={params.currentAge + params.years - 1} step={1}
+                                                tooltip="Idade de elegibilidade ao INSS. Em 2024: 65 anos (homens, 20 anos contrib.), 62 anos (mulheres, 15 anos contrib.)." />
+                                            <BRLInputWithUSD label="Benefício Mensal INSS" valueBRL={params.inssMonthlyBRL}
+                                                onChange={(v) => updateParam('inssMonthlyBRL', v)}
+                                                fx={params.initialFX} min={0} step={500}
+                                                tooltip="Valor mensal bruto em BRL. Reajustado pelo IPCA simulado a cada ano. Reduz o saque do portfólio — você retira menos dos investimentos. INSS já tributado na fonte." />
+                                            {params.inssStartAge >= params.currentAge + params.years && (
+                                                <div className="text-xs text-warning p-2 bg-warning/10 rounded mt-1">
+                                                    ⚠ INSS nunca ativará: horizonte de {params.years} anos termina antes dos {params.inssStartAge} anos
+                                                </div>
+                                            )}
+                                            <div className="text-xs text-gray-500 mt-2 p-2 bg-midnight rounded">
+                                                {params.inssStartAge <= params.currentAge
+                                                    ? `✓ INSS ativo desde o início: R$ ${(params.inssMonthlyBRL * 12 / 1000).toFixed(0)}k/ano, corrigido pelo IPCA`
+                                                    : `✓ INSS inicia no ano ${params.inssStartAge - params.currentAge + 1} (aos ${params.inssStartAge} anos): R$ ${(params.inssMonthlyBRL * 12 / 1000).toFixed(0)}k/ano`
+                                                }
+                                            </div>
+                                        </>}
                                     </div>
 
                                     {/* Bucket Strategy Section */}
@@ -5720,7 +5814,7 @@
                                             unit="k BRL"
                                             icon="Calculator"
                                             color="info"
-                                            subtitle="Média geral"
+                                            subtitle={`~R$ ${(results.overallMeanWithdrawal / 12 / 1000).toFixed(0)}k/mês`}
                                         />
                                         <StatCard
                                             title="Saque Mediano Anual"
@@ -5731,7 +5825,7 @@
                                             unit="k BRL"
                                             icon="BarChart2"
                                             color="accent"
-                                            subtitle="Mediana geral"
+                                            subtitle={`~R$ ${(results.overallMedianWithdrawal / 12 / 1000).toFixed(0)}k/mês`}
                                         />
                                         <StatCard
                                             title="Pior Saque Anual"
@@ -5836,6 +5930,8 @@
                                                 useMinimum={
                                                     params.useMinimumWithdrawal
                                                 }
+                                                inssIncomeMeans={results.inssIncomeMeans}
+                                                useINSS={params.useINSS}
                                             />
                                             <p className="text-xs text-gray-500 mt-3">
                                                 Comparação entre média e mediana
