@@ -42,39 +42,43 @@ All UI text and tooltips are in Portuguese (pt-BR).
 
 ## Development Commands
 
-**No build system** — completely static, self-contained application:
-- **Development**: Open `index.html` directly in a browser or serve via `python -m http.server 8000`
+**No build system** — static application served via HTTP:
+- **Development**: `python -m http.server 8000` then open `http://localhost:8000` (**required** — `file://` won't work because Babel fetches external JS files via XHR)
 - **Deployment**: Push to GitHub and enable Pages (main branch, root directory)
-- **Testing**: Open `tests.html` in browser and click "Run All Tests"
+- **Testing**: Serve locally then open `http://localhost:8000/tests.html` and click "Run All Tests"
 - **Manual testing**: Use browser console to inspect `engine.runSimulation()` (single path) or `engine.runMonteCarlo(100)` (quick 100-iteration test)
 
 ## Architecture
 
-The entire application lives in a single `index.html` file (~4,079 lines) with embedded JavaScript and React:
+The application is split across HTML shells and a `js/` folder:
 
 ```
-index.html
-├── HTML Head (CDN imports: Tailwind, React 18, Babel, Chart.js, Lucide Icons)
-├── Custom CSS (lines 38-83) — colors: midnight, deep, surface, accent, danger, warning, info
-├── JavaScript Section <script type="text/babel">
-│   ├── SeededRNG class (line ~100) — Mulberry32 PRNG for reproducibility
-│   ├── MonteCarloEngine class (line ~119, ~950 lines)
-│   │   ├── Random generators (Box-Muller, T-Student with fat tails)
-│   │   ├── IPCA modeling, currency simulation with dynamic correlation
-│   │   ├── Tax calculation, Guyton-Klinger rules, Bucket strategy
-│   │   ├── runSimulation() — single path
-│   │   ├── runMonteCarlo() — full simulation
-│   │   ├── findMaxWithdrawalRate() — bisection optimizer (Die With Zero)
-│   │   └── analyzeResults() — result analysis & percentile calculation
-│   └── React Components (line ~1071, ~2,900 lines)
-│       ├── Utility: Icon, Tooltip, Input, DualCurrencyInput, BRLInputWithUSD, Toggle
-│       ├── Display: StatCard, PortfolioChart, WithdrawalChart, WithdrawalEvolutionChart
-│       ├── Analysis: WithdrawalStats, FailureAnalysis, RulesExplanation
-│       ├── Stress: StressDurationAnalysis, ToleranceSuccessChart, PortfolioImpactAnalysis
-│       ├── Stress: StressChart, RecoveryAnalysis, StressSummaryCard
-│       └── App (line ~2547) — main container, all state in single useState (line ~2549)
-└── Body: <div id="root"></div>
+index.html          — HTML head (CDN imports + CSS) + script tags only (~117 lines)
+endowment.html      — HTML head + script tags for endowment simulator (~65 lines)
+tests.html          — Test runner (loads engine from js/)
+js/
+├── rng.js                  — SeededRNG class (Mulberry32 PRNG)
+├── engine-core.js          — MonteCarloEngine class (shared by both pages)
+│                               Random generators, IPCA, currency, tax, Guyton-Klinger,
+│                               runSimulation(), runMonteCarlo(), analyzeResults()
+├── engine-endowment.js     — Endowment-only engine methods (prototype extensions):
+│                               generateCAPE, runSimulationEndowment,
+│                               computeComparisonMetrics, runMonteCarloComparison
+├── ui-primitives.js        — Icon, Tooltip, Input, DualCurrencyInput, BRLInputWithUSD, Toggle
+├── ui-shared-charts.js     — StatCard, PortfolioChart (used by both pages)
+├── ui-main-charts.js       — WithdrawalChart, WithdrawalEvolutionChart
+├── ui-main-analysis.js     — WithdrawalStats, FailureAnalysis, RulesExplanation
+├── ui-stress.js            — StressDurationAnalysis, ToleranceSuccessChart,
+│                               PortfolioImpactAnalysis, StressChart,
+│                               RecoveryAnalysis, StressSummaryCard
+├── ui-endowment.js         — ComparisonLineChart, SurvivalComparisonBar,
+│                               CAPEEvolutionChart, WithdrawalDistributionChart,
+│                               ComparisonTable, EndowmentExplainer
+├── app-main.js             — Main App component + ReactDOM.createRoot mount
+└── app-endowment.js        — Endowment App component + ReactDOM.createRoot mount
 ```
+
+**Script loading rules**: `rng.js` and `engine-*.js` are plain `<script src>` (no JSX). All `ui-*.js` and `app-*.js` files use `<script type="text/babel" src="...">` (Babel Standalone compiles them). No `import`/`export` — all names are globals.
 
 ## Key Technical Patterns
 
