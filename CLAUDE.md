@@ -53,14 +53,20 @@ All UI text and tooltips are in Portuguese (pt-BR).
 The application is split across HTML shells and a `js/` folder:
 
 ```
-index.html          — HTML head (CDN imports + CSS) + script tags only (~117 lines)
-endowment.html      — HTML head + script tags for endowment simulator (~65 lines)
+index.html          — HTML head (CDN imports + CSS) + script tags only
+endowment.html      — HTML head + script tags for endowment simulator
 tests.html          — Test runner (loads engine from js/)
 js/
 ├── rng.js                  — SeededRNG class (Mulberry32 PRNG)
+├── mortality-data.js       — IBGE 2023 mortality table (qx ages 0-110, male/female)
+├── historical-data.js      — Historical annual data 1995-2024 (S&P 500, CDI, IPCA, BRL/USD)
 ├── engine-core.js          — MonteCarloEngine class (shared by both pages)
 │                               Random generators, IPCA, currency, tax, Guyton-Klinger,
+│                               spending smile, regime-switching, mortality adjustment,
 │                               runSimulation(), runMonteCarlo(), analyzeResults()
+├── engine-historical.js    — Historical backtesting methods (prototype extensions):
+│                               runHistoricalBacktest, runAllHistoricalWindows,
+│                               analyzeHistoricalResults
 ├── engine-endowment.js     — Endowment-only engine methods (prototype extensions):
 │                               generateCAPE, runSimulationEndowment,
 │                               computeComparisonMetrics, runMonteCarloComparison
@@ -71,6 +77,9 @@ js/
 ├── ui-stress.js            — StressDurationAnalysis, ToleranceSuccessChart,
 │                               PortfolioImpactAnalysis, StressChart,
 │                               RecoveryAnalysis, StressSummaryCard
+├── ui-historical.js        — HistoricalOverview, HistoricalSurvivalChart,
+│                               HistoricalWindowTable, HistoricalWithdrawalChart,
+│                               HistoricalPortfolioChart
 ├── ui-endowment.js         — ComparisonLineChart, SurvivalComparisonBar,
 │                               CAPEEvolutionChart, WithdrawalDistributionChart,
 │                               ComparisonTable, EndowmentExplainer
@@ -78,7 +87,7 @@ js/
 └── app-endowment.js        — Endowment App component + ReactDOM.createRoot mount
 ```
 
-**Script loading rules**: `rng.js` and `engine-*.js` are plain `<script src>` (no JSX). All `ui-*.js` and `app-*.js` files use `<script type="text/babel" src="...">` (Babel Standalone compiles them). No `import`/`export` — all names are globals.
+**Script loading rules**: `rng.js`, `mortality-data.js`, `historical-data.js`, and `engine-*.js` are plain `<script src>` (no JSX). All `ui-*.js` and `app-*.js` files use `<script type="text/babel" src="...">` (Babel Standalone compiles them). No `import`/`export` — all names are globals. Data files (`mortality-data.js`, `historical-data.js`) must load before `engine-core.js`.
 
 ## Key Technical Patterns
 
@@ -87,6 +96,10 @@ js/
 - **Guyton-Klinger Rules**: Preservation (cut if rate rises 20% above initial), Prosperity (increase if rate drops 20% below), Inflation (skip adjustment after bad years). Preservation and Prosperity are mutually exclusive per year.
 - **Bucket Strategy**: First N years withdraw exclusively from fixed income to protect equity from sequence-of-returns risk
 - **Die With Zero Optimizer**: Two-phase bisection (coarse 200 iterations → fine 1000 iterations → full validation)
+- **Spending Smile**: Blanchett (2014) spending curve — configurable multipliers for early/mid/late retirement phases with smooth cosine interpolation. Applied post-G-K so preservation/prosperity rules evaluate the sustainable rate, then smile adjusts actual spending.
+- **Regime-Switching Returns**: 2-state Markov model (bull/bear) replacing IID returns. Calibrated defaults: bull 12%/12%vol, bear -5%/25%vol. Transition probabilities determine regime clustering. Uses `this.random()` for reproducible transitions.
+- **Mortality-Adjusted Survival**: IBGE 2023 mortality table (male/female/couple). Weights failed simulations by P(dead before failure year). A failure at age 95 contributes less than a failure at age 65.
+- **Historical Backtesting**: Rolling-window backtest against 1995-2024 historical data (S&P 500, CDI/Selic, IPCA, BRL/USD). Mirrors `runSimulation()` logic but with actual historical returns. Produces spaghetti charts, percentile bands, and per-window analysis.
 
 ## Modification Guide
 

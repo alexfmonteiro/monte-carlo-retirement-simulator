@@ -48,13 +48,17 @@ endowment.html      — Endowment simulator HTML shell
 tests.html          — Browser-based test runner
 js/
 ├── rng.js                  — SeededRNG class (Mulberry32 PRNG)
+├── mortality-data.js       — IBGE 2023 mortality table (qx ages 0-110, male/female)
+├── historical-data.js      — Historical annual data 1995-2024 (S&P 500, CDI, IPCA, BRL/USD)
 ├── engine-core.js          — MonteCarloEngine class (core simulation logic)
-├── engine-endowment.js    — Endowment-specific methods (prototype extensions)
+├── engine-historical.js    — Historical backtesting methods (prototype extensions)
+├── engine-endowment.js     — Endowment-specific methods (prototype extensions)
 ├── ui-primitives.js        — Reusable UI components (Icon, Tooltip, Input, etc.)
 ├── ui-shared-charts.js     — Charts shared between apps
 ├── ui-main-charts.js       — Main app charts
 ├── ui-main-analysis.js     — Main app analysis components
 ├── ui-stress.js            — Stress analysis components
+├── ui-historical.js        — Historical backtesting UI components
 ├── ui-endowment.js         — Endowment app components
 ├── app-main.js             — Main App React component
 └── app-endowment.js        — Endowment App React component
@@ -62,8 +66,9 @@ js/
 
 ## Script Loading Rules
 
-- `rng.js` and `engine-*.js`: Plain `<script src>` (no JSX)
+- `rng.js`, `mortality-data.js`, `historical-data.js`, and `engine-*.js`: Plain `<script src>` (no JSX)
 - `ui-*.js` and `app-*.js`: `<script type="text/babel" src="...">` (Babel Standalone)
+- Data files (`mortality-data.js`, `historical-data.js`) must load before `engine-core.js`
 - **No ES6 modules** - all names are globals attached to window
 
 ## Code Style Guidelines
@@ -172,6 +177,10 @@ root.render(<App />);
 - **Guyton-Klinger Rules**: Preservation (cut if rate rises 20%), Prosperity (increase if rate drops 20%), Inflation skip rule
 - **Bucket Strategy**: First N years withdraw from fixed income only
 - **IPCA Model**: Brazilian inflation modeling with equity correlation
+- **Spending Smile**: Blanchett (2014) curve — early/mid/late multipliers with cosine interpolation, applied post-G-K
+- **Regime-Switching**: 2-state Markov model (bull/bear) with configurable transition probabilities
+- **Mortality Adjustment**: IBGE mortality table weighting for mortality-adjusted survival rate (male/female/couple)
+- **Historical Backtesting**: Rolling-window backtest against 1995-2024 data (S&P 500, CDI, IPCA, BRL/USD)
 
 ### Configuration Parameters
 
@@ -181,6 +190,9 @@ All simulation parameters are in a single object passed to `MonteCarloEngine`:
 - Withdrawal: `withdrawalRate`, `useGuytonKlinger`, `useBucketStrategy`
 - Tax: `useTaxModel`, `equityTaxRate`, `fixedIncomeTaxRate`
 - Inflation: `useIPCAModel`, `expectedIPCA`, `ipcaVolatility`
+- Spending Smile: `useSpendingSmile`, `smileEarlyMultiplier`, `smileMidMultiplier`, `smileLateMultiplier`
+- Regime-Switching: `useRegimeSwitching`, `bullEquityMean`, `bullEquityVol`, `bearEquityMean`, `bearEquityVol`, `bullToBullProb`, `bearToBearProb`
+- Mortality: `useMortalityAdjustment`, `mortalityGender`
 
 ## Modification Guide
 

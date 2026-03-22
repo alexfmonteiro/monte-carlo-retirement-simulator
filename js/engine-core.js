@@ -63,6 +63,27 @@ class MonteCarloEngine {
         return this.randomNormal(mean, std);
     }
 
+    // Generate equity return using 2-state Markov regime-switching model
+    // Bull state: higher mean, lower vol. Bear state: lower mean, higher vol.
+    generateRegimeSwitchingReturn(currentRegime) {
+        const {
+            bullEquityMean, bullEquityVol,
+            bearEquityMean, bearEquityVol,
+            bullToBullProb, bearToBearProb
+        } = this.params;
+
+        // Determine next regime using transition probabilities
+        const stayProb = currentRegime === 'bull' ? bullToBullProb : bearToBearProb;
+        const newRegime = this.random() < stayProb ? currentRegime : (currentRegime === 'bull' ? 'bear' : 'bull');
+
+        // Generate return using the appropriate regime parameters
+        const mean = newRegime === 'bull' ? bullEquityMean / 100 : bearEquityMean / 100;
+        const vol = newRegime === 'bull' ? bullEquityVol / 100 : bearEquityVol / 100;
+        const ret = this.generateReturn(mean, vol);
+
+        return { return: ret, newRegime };
+    }
+
     // Generate IPCA for the year (correlated with economic conditions)
     generateIPCA(equityReturn) {
         if (!this.params.useIPCAModel) {
@@ -196,6 +217,40 @@ class MonteCarloEngine {
         return baseFX * (1 + fxReturn);
     }
 
+    // Spending Smile multiplier: retirees spend more early (travel/leisure),
+    // less mid-retirement, more late (healthcare). Returns a multiplier for
+    // the target withdrawal. Uses smooth cosine interpolation between phases.
+    getSpendingSmileMultiplier(year, totalYears) {
+        const earlyMult = this.params.smileEarlyMultiplier || 1.20;
+        const midMult = this.params.smileMidMultiplier || 0.85;
+        const lateMult = this.params.smileLateMultiplier || 1.10;
+
+        const thirdLen = totalYears / 3;
+        const transitionWidth = Math.min(3, thirdLen / 2); // ~3 year smooth window
+
+        // Phase boundaries (centers of transitions)
+        const boundary1 = thirdLen;   // early → mid
+        const boundary2 = 2 * thirdLen; // mid → late
+
+        // Smooth cosine interpolation: returns 0→1 as x goes from center-width to center+width
+        const cosInterp = (x, center, width) => {
+            const t = (x - center) / width;
+            if (t <= -1) return 0;
+            if (t >= 1) return 1;
+            return 0.5 * (1 - Math.cos(Math.PI * (t + 1) / 2));
+        };
+
+        // Blend between the three phases
+        const blend1 = cosInterp(year, boundary1, transitionWidth); // 0 = early, 1 = mid
+        const blend2 = cosInterp(year, boundary2, transitionWidth); // 0 = mid, 1 = late
+
+        // Two-stage blend: early→mid then mid→late
+        const earlyMidBlend = earlyMult * (1 - blend1) + midMult * blend1;
+        const multiplier = earlyMidBlend * (1 - blend2) + lateMult * blend2;
+
+        return multiplier;
+    }
+
     // Apply Guyton-Klinger rules
     // IMPORTANT: Rules are MUTUALLY EXCLUSIVE - only one adjustment rule can apply per year
     // Priority: 1) Inflation skip (if enabled), 2) Preservation (portfolio stress), 3) Prosperity (portfolio growth)
@@ -323,6 +378,9 @@ class MonteCarloEngine {
         // Track consecutive negative returns for constraint
         let consecutiveNegativeYears = 0;
 
+        // Regime-switching state
+        let currentRegime = 'bull';
+
         // Stress period tracking (now: when minimum withdrawal was enforced)
         let inStressPeriod = false;
         let currentStressStart = null;
@@ -355,6 +413,9 @@ class MonteCarloEngine {
             ],
             withdrawalSource: ["initial"],
             inssIncomeBRL: [0],
+            cumulativeIpcaFactor: [1.0],
+            smileMultiplier: [1.0],
+            regimeHistory: ['bull'],
         };
 
         for (let year = 1; year <= years; year++) {
@@ -377,14 +438,25 @@ class MonteCarloEngine {
                 });
                 history.withdrawalSource.push("none");
                 history.inssIncomeBRL.push(0);
+                history.cumulativeIpcaFactor.push(history.cumulativeIpcaFactor[year - 1]);
+                history.smileMultiplier.push(1.0);
+                history.regimeHistory.push(currentRegime);
                 continue;
             }
 
             // Generate equity return with appropriate distribution (Normal or Student's T)
-            let equityReturnYear = this.generateReturn(
-                equityReturn / 100,
-                equityVolatility / 100,
-            );
+            // or regime-switching model if enabled
+            let equityReturnYear;
+            if (this.params.useRegimeSwitching) {
+                const result = this.generateRegimeSwitchingReturn(currentRegime);
+                equityReturnYear = result.return;
+                currentRegime = result.newRegime;
+            } else {
+                equityReturnYear = this.generateReturn(
+                    equityReturn / 100,
+                    equityVolatility / 100,
+                );
+            }
 
             // Apply constraint on consecutive negative returns (NON-IID MODE)
             // WARNING: This constraint breaks the IID assumption of pure Monte Carlo
@@ -426,10 +498,10 @@ class MonteCarloEngine {
             // Calculate gain ratio for tax purposes (estimate based on years invested)
             const gainRatio = Math.min(0.6, year * 0.06);
 
-            // Calculate minimum withdrawal in USD for this year
+            // Calculate minimum withdrawal in USD for this year (inflation-adjusted)
             const minimumWithdrawalUSD =
                 useMinimumWithdrawal && minimumWithdrawalBRL > 0
-                    ? minimumWithdrawalBRL / currentFX
+                    ? (minimumWithdrawalBRL * cumulativeIpcaFactor) / currentFX
                     : 0;
 
             // INSS income for this year
@@ -438,12 +510,19 @@ class MonteCarloEngine {
             const annualINSSUSD = inssActive ? (inssMonthlyBRL * 12 * cumulativeIpcaFactor) / currentFX : 0;
             const annualINSSBRL = annualINSSUSD * currentFX;
 
+            // Spending Smile: adjust actual spending while keeping G-K base clean
+            let smileMultiplier = 1.0;
+            if (this.params.useSpendingSmile) {
+                smileMultiplier = this.getSpendingSmileMultiplier(year, years);
+            }
+
             // Bucket Strategy: In bucket years, withdrawals come from bonds only
             let withdrawalSource = "mixed";
             let recommendedWithdrawalUSD = currentWithdrawalUSD;
             let actualWithdrawalUSD = currentWithdrawalUSD;
             let portfolioWithdrawalUSD = currentWithdrawalUSD;
             let gkRuleApplied = null;
+            let gkBaseWithdrawalUSD = currentWithdrawalUSD;
             let taxPaid = 0;
 
             if (useBucketStrategy && year <= bucketYears) {
@@ -463,7 +542,8 @@ class MonteCarloEngine {
                     previousReturn,
                     inflation / 100,
                 );
-                recommendedWithdrawalUSD = gkResult.withdrawal;
+                gkBaseWithdrawalUSD = gkResult.withdrawal;
+                recommendedWithdrawalUSD = gkBaseWithdrawalUSD * smileMultiplier;
                 gkRuleApplied = gkResult.ruleApplied;
 
                 // ENFORCE MINIMUM: INSS reduces portfolio withdrawal; minimum applies to portfolio portion
@@ -503,8 +583,8 @@ class MonteCarloEngine {
                         : 0;
                 equityAllocation = 1 - bondAllocation;
 
-                // Update current withdrawal for next iteration (use recommended, not forced)
-                currentWithdrawalUSD = recommendedWithdrawalUSD;
+                // Update current withdrawal for next iteration (use pre-smile G-K output)
+                currentWithdrawalUSD = gkBaseWithdrawalUSD;
             } else {
                 // Standard strategy: Tent/Glidepath with mixed withdrawals
 
@@ -563,7 +643,8 @@ class MonteCarloEngine {
                     previousReturn,
                     inflation / 100,
                 );
-                recommendedWithdrawalUSD = gkResult.withdrawal;
+                gkBaseWithdrawalUSD = gkResult.withdrawal;
+                recommendedWithdrawalUSD = gkBaseWithdrawalUSD * smileMultiplier;
                 gkRuleApplied = gkResult.ruleApplied;
 
                 // ENFORCE MINIMUM: INSS reduces portfolio withdrawal; minimum applies to portfolio portion
@@ -608,8 +689,8 @@ class MonteCarloEngine {
                     portfolioUSD -= totalWithdrawalUSD;
                 }
 
-                // Update current withdrawal for next iteration (use recommended, not forced)
-                currentWithdrawalUSD = recommendedWithdrawalUSD;
+                // Update current withdrawal for next iteration (use pre-smile G-K output)
+                currentWithdrawalUSD = gkBaseWithdrawalUSD;
 
                 previousReturn = portfolioReturn;
             }
@@ -716,6 +797,9 @@ class MonteCarloEngine {
             history.minimumEnforced.push(minimumWasEnforced);
             history.withdrawalSource.push(withdrawalSource);
             history.inssIncomeBRL.push(annualINSSBRL);
+            history.cumulativeIpcaFactor.push(cumulativeIpcaFactor);
+            history.smileMultiplier.push(smileMultiplier);
+            history.regimeHistory.push(currentRegime);
         }
 
         // Close any open stress period at end of simulation
@@ -731,6 +815,29 @@ class MonteCarloEngine {
         }
 
         return history;
+    }
+
+    // Compute survival probability from mortality tables (IBGE)
+    // Returns array of length years+1 where [0] = 1.0 (alive at start)
+    // and [t] = probability of surviving from startAge to startAge+t
+    computeSurvivalProbability(startAge, years, gender) {
+        if (gender === 'couple') {
+            // Joint survival: P(at least one alive) = 1 - P(both dead)
+            const maleSurv = this.computeSurvivalProbability(startAge, years, 'male');
+            const femaleSurv = this.computeSurvivalProbability(startAge, years, 'female');
+            return maleSurv.map((pm, t) => 1 - (1 - pm) * (1 - femaleSurv[t]));
+        }
+
+        const table = IBGE_MORTALITY_TABLE[gender];
+        const probs = [1.0];
+        let cumSurvival = 1.0;
+        for (let t = 1; t <= years; t++) {
+            const age = startAge + t - 1;
+            const qx = table[Math.min(age, 110)] || 1.0;
+            cumSurvival *= (1 - qx);
+            probs.push(cumSurvival);
+        }
+        return probs;
     }
 
     analyzeFailure(
@@ -793,6 +900,9 @@ class MonteCarloEngine {
         const withdrawalMeans = [];
         const withdrawalMedians = [];
         const inssIncomeMeans = [];
+
+        // Track mean cumulative IPCA for inflation-adjusted minimum withdrawal line
+        const meanCumulativeIpca = [];
 
         // Track recommended vs actual withdrawal
         const recommendedWithdrawalMeans = [];
@@ -883,6 +993,10 @@ class MonteCarloEngine {
 
             const inssValues = simulations.map(s => (s.inssIncomeBRL ? s.inssIncomeBRL[year] || 0 : 0));
             inssIncomeMeans.push(inssValues.reduce((a, b) => a + b, 0) / inssValues.length);
+
+            // Mean cumulative IPCA factor for this year
+            const ipcaFactors = simulations.map(s => s.cumulativeIpcaFactor ? s.cumulativeIpcaFactor[year] || 1.0 : 1.0);
+            meanCumulativeIpca.push(ipcaFactors.reduce((a, b) => a + b, 0) / ipcaFactors.length);
 
             // Recommended withdrawal mean
             const recommendedMean =
@@ -1113,6 +1227,41 @@ class MonteCarloEngine {
         ).length;
         const survivalRate = (survived / numSims) * 100;
 
+        // Mortality-adjusted survival rate
+        let mortalityAdjustedSurvivalRate = null;
+        let survivalProbabilityByYear = null;
+        let lifeExpectancyAtStart = null;
+
+        if (this.params.useMortalityAdjustment && typeof IBGE_MORTALITY_TABLE !== 'undefined') {
+            const gender = this.params.mortalityGender || 'male';
+            const startAge = this.params.currentAge || 60;
+            const survProbs = this.computeSurvivalProbability(startAge, years, gender);
+
+            // For each simulation:
+            // - If it survived all years: contributes 1.0
+            // - If it failed at year t: contributes (1 - survProbs[t])
+            //   i.e., the probability the person would have died before the failure
+            let adjustedSuccesses = 0;
+            simulations.forEach(s => {
+                if (!s.failed) {
+                    adjustedSuccesses += 1;
+                } else {
+                    adjustedSuccesses += (1 - survProbs[s.failureYear]);
+                }
+            });
+            mortalityAdjustedSurvivalRate = (adjustedSuccesses / numSims) * 100;
+            survivalProbabilityByYear = survProbs;
+
+            // Compute life expectancy
+            if (gender === 'couple') {
+                const leMale = computeLifeExpectancy(startAge, 'male');
+                const leFemale = computeLifeExpectancy(startAge, 'female');
+                lifeExpectancyAtStart = Math.max(leMale, leFemale);
+            } else {
+                lifeExpectancyAtStart = computeLifeExpectancy(startAge, gender);
+            }
+        }
+
         // Failure count
         const failedByDepletion = simulations.filter(
             (s) => s.failed && s.failureType === "depletion",
@@ -1271,12 +1420,50 @@ class MonteCarloEngine {
             });
         });
 
+        // Inflation-adjusted minimum withdrawal line (for chart)
+        const minimumWithdrawalAdjusted =
+            useMinimumWithdrawal && minimumWithdrawalBRL > 0
+                ? meanCumulativeIpca.map(f => minimumWithdrawalBRL * f)
+                : [];
+
+        // Regime-switching statistics
+        let regimeStats = null;
+        if (this.params.useRegimeSwitching) {
+            let totalBullYears = 0;
+            let totalBearYears = 0;
+            let totalBearEpisodes = 0;
+
+            simulations.forEach(s => {
+                const rh = s.regimeHistory || [];
+                let bearYears = 0;
+                let bullYears = 0;
+                let bearEpisodes = 0;
+                for (let i = 1; i < rh.length; i++) {
+                    if (rh[i] === 'bull') bullYears++;
+                    if (rh[i] === 'bear') {
+                        bearYears++;
+                        if (rh[i - 1] === 'bull') bearEpisodes++;
+                    }
+                }
+                totalBullYears += bullYears;
+                totalBearYears += bearYears;
+                totalBearEpisodes += bearEpisodes;
+            });
+
+            regimeStats = {
+                avgBullYears: totalBullYears / numSims,
+                avgBearYears: totalBearYears / numSims,
+                avgBearEpisodes: totalBearEpisodes / numSims,
+            };
+        }
+
         return {
             portfolioPercentiles: percentiles,
             withdrawalPercentiles,
             withdrawalMeans,
             withdrawalMedians,
             inssIncomeMeans,
+            minimumWithdrawalAdjusted,
             recommendedWithdrawalMeans,
             stressChartData,
             survivalRate,
@@ -1301,6 +1488,12 @@ class MonteCarloEngine {
                 stressByStartYear,
                 avgStressYearsPerSim,
             },
+            // Regime-switching statistics (null if not enabled)
+            regimeStats,
+            // Mortality-adjusted metrics (null if not enabled)
+            mortalityAdjustedSurvivalRate,
+            survivalProbabilityByYear,
+            lifeExpectancyAtStart,
         };
     }
 }

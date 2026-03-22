@@ -46,9 +46,25 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                     useTaxModel: true,
                     equityTaxRate: 15, // % tax on equity gains (Irish ETFs)
                     fixedIncomeTaxRate: 15, // % tax on fixed income (simplified)
+                    // Spending Smile (Blanchett curve)
+                    useSpendingSmile: false,
+                    smileEarlyMultiplier: 1.20, // Early retirement: travel, leisure
+                    smileMidMultiplier: 0.85,   // Mid retirement: lower spending
+                    smileLateMultiplier: 1.10,  // Late retirement: healthcare
+                    // Regime-switching return model (2-state Markov)
+                    useRegimeSwitching: false,
+                    bullEquityMean: 12.0,
+                    bullEquityVol: 12.0,
+                    bearEquityMean: -5.0,
+                    bearEquityVol: 25.0,
+                    bullToBullProb: 0.875,
+                    bearToBearProb: 0.50,
                     // Sequence of returns constraint (NON-IID)
                     useSequenceConstraint: false, // OFF by default - pure IID Monte Carlo
                     maxNegativeSequence: 10, // Max consecutive years of negative returns (only if constraint enabled)
+                    // Mortality adjustment (IBGE)
+                    useMortalityAdjustment: false,
+                    mortalityGender: 'male', // 'male' | 'female' | 'couple'
                     // Reproducibility
                     seed: null, // null = random seed each run, number = deterministic
                     // Objective Mode: Maximum Consumption Optimizer
@@ -67,6 +83,12 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                     useState(null);
                 const [optimizationResult, setOptimizationResult] =
                     useState(null);
+                const [historicalResults, setHistoricalResults] =
+                    useState(null);
+                const [isRunningHistorical, setIsRunningHistorical] =
+                    useState(false);
+                const [activeResultsTab, setActiveResultsTab] =
+                    useState("montecarlo"); // 'montecarlo' | 'historical'
 
                 const updateParam = (key, value) => {
                     setParams((prev) => ({ ...prev, [key]: value }));
@@ -74,6 +96,8 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                     if (key === "objectiveMode") {
                         setOptimizationResult(null);
                         setResults(null);
+                        setHistoricalResults(null);
+                        setActiveResultsTab("montecarlo");
                     }
                 };
 
@@ -94,6 +118,18 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                         setIsRunning(false);
                         setProgress(100);
                     }, 100);
+                };
+
+                const runHistoricalBacktest = () => {
+                    setIsRunningHistorical(true);
+                    setTimeout(() => {
+                        const engine = new MonteCarloEngine(params);
+                        const windows = engine.runAllHistoricalWindows();
+                        const analysis = engine.analyzeHistoricalResults(windows);
+                        setHistoricalResults(analysis);
+                        setIsRunningHistorical(false);
+                        setActiveResultsTab("historical");
+                    }, 50);
                 };
 
                 // ============================================
@@ -383,6 +419,16 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                         `  Usar Saque Mínimo: ${params.useMinimumWithdrawal ? "Sim" : "Não"}`,
                         `  Valor Mínimo: ${fmt(params.minimumWithdrawalBRL)}`,
                         "",
+                        "Spending Smile (Curva de Gastos):",
+                        `  Ativado: ${params.useSpendingSmile ? "Sim" : "Não"}`,
+                        ...(params.useSpendingSmile
+                            ? [
+                                  `  Multiplicador Início: ${params.smileEarlyMultiplier.toFixed(2)}x`,
+                                  `  Multiplicador Meio: ${params.smileMidMultiplier.toFixed(2)}x`,
+                                  `  Multiplicador Final: ${params.smileLateMultiplier.toFixed(2)}x`,
+                              ]
+                            : []),
+                        "",
                         "Benefício INSS:",
                         `  Receber INSS: ${params.useINSS ? "Sim" : "Não"}`,
                         ...(params.useINSS
@@ -413,6 +459,28 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                         `  Imposto RF: ${params.fixedIncomeTaxRate}%`,
                         `  Restrição de Sequência: ${params.useSequenceConstraint ? "Sim" : "Não"}`,
                         `  Máx Sequência Negativa: ${params.maxNegativeSequence} anos`,
+                        `  Regime-Switching: ${params.useRegimeSwitching ? "Sim" : "Não"}`,
+                        ...(params.useRegimeSwitching
+                            ? [
+                                  `  Retorno Bull: ${params.bullEquityMean}% (vol ${params.bullEquityVol}%)`,
+                                  `  Retorno Bear: ${params.bearEquityMean}% (vol ${params.bearEquityVol}%)`,
+                                  `  P(Bull→Bull): ${params.bullToBullProb}`,
+                                  `  P(Bear→Bear): ${params.bearToBearProb}`,
+                                  `  P(bull) estado estacionário: ${((1 - params.bearToBearProb) / (2 - params.bullToBullProb - params.bearToBearProb) * 100).toFixed(1)}%`,
+                              ]
+                            : []),
+                        "",
+                        "Ajuste por Mortalidade:",
+                        `  Ativado: ${params.useMortalityAdjustment ? "Sim" : "Não"}`,
+                        ...(params.useMortalityAdjustment
+                            ? [
+                                  `  Gênero/Perfil: ${params.mortalityGender === 'male' ? 'Masculino' : params.mortalityGender === 'female' ? 'Feminino' : 'Casal'}`,
+                                  `  Idade Atual: ${params.currentAge} anos`,
+                                  ...(results.lifeExpectancyAtStart != null
+                                      ? [`  Expectativa de Vida: ~${Math.round(results.lifeExpectancyAtStart)} anos adicionais`]
+                                      : []),
+                              ]
+                            : []),
                         "",
                         "Modo Objetivo:",
                         `  Modo: ${params.objectiveMode === "preservation" ? "Preservação" : "Consumo Máximo (Die With Zero)"}`,
@@ -423,6 +491,9 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                         "--- RESULTADOS ---",
                         "",
                         `Taxa de Sobrevivência: ${results.survivalRate.toFixed(1)}%`,
+                        ...(results.mortalityAdjustedSurvivalRate != null
+                            ? [`Taxa de Sobrevivência (Ajustada por Mortalidade): ${results.mortalityAdjustedSurvivalRate.toFixed(1)}%`]
+                            : []),
                         `Iterações: ${results.totalSimulations}`,
                         `Falhas: ${results.failedSimulations}`,
                         `Saque Médio Anual: ${fmt(results.overallMeanWithdrawal)}`,
@@ -443,6 +514,20 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                         `  Prosperidade: ${((results.ruleStats.prosperity / totalYearDecisions) * 100).toFixed(1)}%`,
                         `  Inflação Suprimida: ${((results.ruleStats.inflationSkip / totalYearDecisions) * 100).toFixed(1)}%`,
                     ];
+
+                    if (results.regimeStats) {
+                        lines.push("");
+                        lines.push("Estatísticas de Regime:");
+                        lines.push(
+                            `  Anos médios em Bull: ${results.regimeStats.avgBullYears.toFixed(1)}`,
+                        );
+                        lines.push(
+                            `  Anos médios em Bear: ${results.regimeStats.avgBearYears.toFixed(1)}`,
+                        );
+                        lines.push(
+                            `  Episódios Bear médios: ${results.regimeStats.avgBearEpisodes.toFixed(1)}`,
+                        );
+                    }
 
                     if (results.avgFailureYear !== null) {
                         lines.push("");
@@ -475,6 +560,27 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                         lines.push(
                             `  Tempo de Cálculo: ${(optimizationResult.computeTimeMs / 1000).toFixed(1)}s`,
                         );
+                    }
+
+                    if (historicalResults) {
+                        lines.push("");
+                        lines.push("--- BACKTESTING HISTORICO ---");
+                        lines.push("");
+                        lines.push(`Periodo de Dados: ${historicalResults.dataRange.start}-${historicalResults.dataRange.end} (${historicalResults.dataRange.totalYears} anos)`);
+                        lines.push(`Janelas Testadas: ${historicalResults.totalWindows} (${historicalResults.completeWindows} completas)`);
+                        lines.push(`Taxa de Sobrevivencia (completas): ${historicalResults.survivalRate.toFixed(1)}%`);
+                        lines.push(`Taxa de Sobrevivencia (todas): ${historicalResults.allWindowsSurvivalRate.toFixed(1)}%`);
+                        lines.push(`Saque Mediano: ${fmt(historicalResults.medianWithdrawal)}`);
+                        lines.push(`Pior Saque: ${fmt(historicalResults.worstWithdrawal)}`);
+                        if (historicalResults.bestWindow) {
+                            lines.push(`Melhor Janela: ${historicalResults.bestWindow.startYear} (final: ${fmt(historicalResults.bestWindow.finalPortfolioBRL)})`);
+                        }
+                        if (historicalResults.worstWindow) {
+                            lines.push(`Pior Janela: ${historicalResults.worstWindow.startYear}${historicalResults.worstWindow.failed ? ` (falha ano ${historicalResults.worstWindow.failureYear})` : ` (final: ${fmt(historicalResults.worstWindow.finalPortfolioBRL)})`}`);
+                        }
+                        if (historicalResults.failedWindows.length > 0) {
+                            lines.push(`Janelas com Falha: ${historicalResults.failedWindows.map(f => `${f.startYear} (ano ${f.failureYear})`).join(", ")}`);
+                        }
                     }
 
                     lines.push("");
@@ -1042,7 +1148,7 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                                                 }
                                             />
                                             <div className="text-xs text-gray-600 -mt-2 mb-2">
-                                                Garante um piso de saque
+                                                Garante um piso de saque (corrigido por IPCA)
                                                 independente das regras G-K
                                             </div>
                                         </div>
@@ -1061,7 +1167,7 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                                                 fx={params.initialFX}
                                                 min={0}
                                                 step={10000}
-                                                tooltip="O saque NUNCA será menor que este valor, mesmo que as regras de Guyton-Klinger recomendem menos. Representa seu custo de vida mínimo irredutível (despesas essenciais: moradia, alimentação, saúde, impostos). ATENÇÃO: Forçar um saque acima do recomendado por G-K acelera a depleção do portfólio. A análise de stress mostrará quando e por quanto tempo este mínimo foi necessário."
+                                                tooltip="O saque NUNCA será menor que este valor (corrigido pela inflação IPCA), mesmo que as regras de Guyton-Klinger recomendem menos. Representa seu custo de vida mínimo irredutível (despesas essenciais: moradia, alimentação, saúde, impostos) em valores de hoje. ATENÇÃO: Forçar um saque acima do recomendado por G-K acelera a depleção do portfólio. A análise de stress mostrará quando e por quanto tempo este mínimo foi necessário."
                                             />
                                         )}
                                         <div className="text-xs text-gray-500 mt-1 p-2 bg-midnight rounded">
@@ -1120,6 +1226,73 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                                         </>}
                                     </div>
 
+                                    {/* Mortality Adjustment Section */}
+                                    <div className="mb-6">
+                                        <h2 className="text-sm font-semibold text-gray-300 mb-3 flex items-center gap-2">
+                                            <Icon name="HeartPulse" size={16} /> Ajuste por Mortalidade
+                                        </h2>
+                                        <div className="mb-2">
+                                            <Toggle label="Ajuste por Mortalidade (IBGE)"
+                                                checked={params.useMortalityAdjustment}
+                                                onChange={(v) => updateParam('useMortalityAdjustment', v)} />
+                                            <div className="text-xs text-gray-600 -mt-2 mb-2">
+                                                Pondera taxa de sucesso pela probabilidade de sobrevivência
+                                                <Tooltip text="Utiliza a Tábua Completa de Mortalidade do IBGE 2023 para ponderar os resultados da simulação. Uma falha do portfólio aos 95 anos importa menos se a probabilidade de estar vivo nessa idade é baixa. O resultado é uma taxa de sucesso ajustada que reflete melhor o risco real durante o tempo de vida esperado." />
+                                            </div>
+                                        </div>
+                                        {params.useMortalityAdjustment && (<>
+                                            <div className="mb-3">
+                                                <label className="flex items-center text-xs text-gray-400 mb-1 font-medium uppercase tracking-wide">
+                                                    Gênero / Perfil
+                                                    <Tooltip text="Selecione o perfil demográfico para a tábua de mortalidade. 'Casal' usa a probabilidade conjunta: ao menos um dos dois estar vivo em cada ano. Mulheres têm expectativa de vida maior que homens no Brasil." />
+                                                </label>
+                                                <div className="flex gap-1">
+                                                    {[
+                                                        { value: 'male', label: 'Masculino' },
+                                                        { value: 'female', label: 'Feminino' },
+                                                        { value: 'couple', label: 'Casal' },
+                                                    ].map(opt => (
+                                                        <button key={opt.value}
+                                                            onClick={() => updateParam('mortalityGender', opt.value)}
+                                                            className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-medium transition-all ${
+                                                                params.mortalityGender === opt.value
+                                                                    ? 'bg-accent text-white'
+                                                                    : 'bg-deep border border-gray-700 text-gray-400 hover:border-gray-500'
+                                                            }`}
+                                                        >
+                                                            {opt.label}
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                            {!params.useINSS && (
+                                                <Input label="Idade Atual (Aposentadoria)" value={params.currentAge}
+                                                    onChange={(v) => updateParam('currentAge', Math.round(v))}
+                                                    unit="anos" min={40} max={80} step={1}
+                                                    tooltip="Sua idade no início da simulação (ano 1). Usada para calcular a probabilidade de sobrevivência em cada ano." />
+                                            )}
+                                            {typeof IBGE_MORTALITY_TABLE !== 'undefined' && (() => {
+                                                const gender = params.mortalityGender;
+                                                let le;
+                                                if (gender === 'couple') {
+                                                    const leMale = computeLifeExpectancy(params.currentAge, 'male');
+                                                    const leFemale = computeLifeExpectancy(params.currentAge, 'female');
+                                                    le = Math.max(leMale, leFemale);
+                                                } else {
+                                                    le = computeLifeExpectancy(params.currentAge, gender);
+                                                }
+                                                return (
+                                                    <div className="text-xs text-gray-500 mt-2 p-2 bg-midnight rounded">
+                                                        {gender === 'couple'
+                                                            ? `✓ Expectativa de vida aos ${params.currentAge} anos (ao menos um vivo): ~${Math.round(le)} anos adicionais (até ~${params.currentAge + Math.round(le)} anos)`
+                                                            : `✓ Expectativa de vida aos ${params.currentAge} anos (${gender === 'male' ? 'masculino' : 'feminino'}): ~${Math.round(le)} anos adicionais (até ~${params.currentAge + Math.round(le)} anos)`
+                                                        }
+                                                    </div>
+                                                );
+                                            })()}
+                                        </>)}
+                                    </div>
+
                                     {/* Bucket Strategy Section */}
                                     <div className="mb-6">
                                         <h2 className="text-sm font-semibold text-gray-300 mb-3 flex items-center gap-2">
@@ -1166,6 +1339,106 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                                                 ? `🪣 Primeiros ${params.bucketYears} anos: saques vêm da RF (${params.tentInitialBondPercent}% = ${formatCurrency(params.initialPortfolioUSD * params.initialFX * (params.tentInitialBondPercent / 100))})`
                                                 : "Desativado: saques proporcionais à alocação atual RV/RF"}
                                         </div>
+                                    </div>
+
+                                    {/* Spending Smile Section */}
+                                    <div className="mb-6">
+                                        <h2 className="text-sm font-semibold text-gray-300 mb-3 flex items-center gap-2">
+                                            <Icon name="Smile" size={16} />
+                                            Curva de Gastos (Spending Smile)
+                                        </h2>
+                                        <div className="mb-2">
+                                            <Toggle
+                                                label="Ativar Spending Smile"
+                                                checked={
+                                                    params.useSpendingSmile
+                                                }
+                                                onChange={(v) =>
+                                                    updateParam(
+                                                        "useSpendingSmile",
+                                                        v,
+                                                    )
+                                                }
+                                            />
+                                            <div className="text-xs text-gray-600 -mt-2 mb-2">
+                                                Ajusta gastos ao longo da
+                                                aposentadoria conforme pesquisa
+                                                de Blanchett
+                                            </div>
+                                        </div>
+                                        {params.useSpendingSmile && (
+                                            <>
+                                                <Input
+                                                    label="Multiplicador Início"
+                                                    value={
+                                                        params.smileEarlyMultiplier *
+                                                        100
+                                                    }
+                                                    onChange={(v) =>
+                                                        updateParam(
+                                                            "smileEarlyMultiplier",
+                                                            v / 100,
+                                                        )
+                                                    }
+                                                    unit="%"
+                                                    min={50}
+                                                    max={200}
+                                                    step={5}
+                                                    tooltip="FASE INICIAL (primeiro terço): Gastos mais altos com viagens, lazer e realização de sonhos. Pesquisa de Blanchett (2014) mostra que aposentados recentes gastam 20-30% mais. Exemplo: 120% significa gastar 20% acima do saque base G-K."
+                                                />
+                                                <Input
+                                                    label="Multiplicador Meio"
+                                                    value={
+                                                        params.smileMidMultiplier *
+                                                        100
+                                                    }
+                                                    onChange={(v) =>
+                                                        updateParam(
+                                                            "smileMidMultiplier",
+                                                            v / 100,
+                                                        )
+                                                    }
+                                                    unit="%"
+                                                    min={50}
+                                                    max={150}
+                                                    step={5}
+                                                    tooltip="FASE INTERMEDIÁRIA (segundo terço): Gastos reduzidos — menos viagens, rotina mais tranquila. Tipicamente 10-20% abaixo do saque base. Exemplo: 85% significa gastar 15% menos que o saque base G-K."
+                                                />
+                                                <Input
+                                                    label="Multiplicador Final"
+                                                    value={
+                                                        params.smileLateMultiplier *
+                                                        100
+                                                    }
+                                                    onChange={(v) =>
+                                                        updateParam(
+                                                            "smileLateMultiplier",
+                                                            v / 100,
+                                                        )
+                                                    }
+                                                    unit="%"
+                                                    min={50}
+                                                    max={200}
+                                                    step={5}
+                                                    tooltip="FASE FINAL (último terço): Gastos voltam a subir com saúde, cuidadores, medicamentos e possível assistência domiciliar. Tipicamente 5-15% acima do base. Exemplo: 110% significa gastar 10% acima do saque base G-K."
+                                                />
+                                                <div className="text-xs text-gray-500 mt-1 p-2 bg-midnight rounded">
+                                                    <strong>Curva:</strong>{" "}
+                                                    {(params.smileEarlyMultiplier * 100).toFixed(0)}%
+                                                    → {(params.smileMidMultiplier * 100).toFixed(0)}%
+                                                    → {(params.smileLateMultiplier * 100).toFixed(0)}%
+                                                    {" "}(início → meio → fim,
+                                                    transição suave por coseno)
+                                                </div>
+                                            </>
+                                        )}
+                                        {!params.useSpendingSmile && (
+                                            <div className="text-xs text-gray-500 p-2 bg-midnight rounded">
+                                                Desativado: saques seguem valor
+                                                constante (ajustado apenas por
+                                                inflação e regras G-K)
+                                            </div>
+                                        )}
                                     </div>
 
                                     {/* Advanced Modeling Section */}
@@ -1382,6 +1655,150 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                                             )}
                                         </div>
 
+                                        {/* Regime-Switching Returns */}
+                                        <div className="mb-2 p-2 bg-midnight rounded border border-gray-800">
+                                            <Toggle
+                                                label="Retornos com Regime-Switching"
+                                                checked={params.useRegimeSwitching}
+                                                onChange={(v) =>
+                                                    updateParam(
+                                                        "useRegimeSwitching",
+                                                        v,
+                                                    )
+                                                }
+                                            />
+                                            <div className="text-xs text-gray-600 -mt-2 mb-1">
+                                                Modelo Markov de 2 estados (bull/bear) para retornos de RV
+                                            </div>
+                                            {params.useRegimeSwitching && (
+                                                <>
+                                                    <div className="text-xs text-amber-400/80 mb-2 p-1.5 bg-amber-900/20 rounded">
+                                                        Quando ativado, substitui a média/vol única de RV por dois regimes com probabilidades de transição.
+                                                    </div>
+                                                    <div className="text-xs text-gray-400 font-medium mb-1 mt-2">
+                                                        Regime Bull (Alta)
+                                                    </div>
+                                                    <Input
+                                                        label="Retorno Médio Bull"
+                                                        value={params.bullEquityMean}
+                                                        onChange={(v) =>
+                                                            updateParam(
+                                                                "bullEquityMean",
+                                                                v,
+                                                            )
+                                                        }
+                                                        unit="%"
+                                                        min={0}
+                                                        max={30}
+                                                        step={0.5}
+                                                        tooltip="Retorno médio anual de renda variável durante o regime de alta (bull market). Mercados de alta tipicamente duram vários anos com retornos positivos e volatilidade mais baixa."
+                                                    />
+                                                    <Input
+                                                        label="Volatilidade Bull"
+                                                        value={params.bullEquityVol}
+                                                        onChange={(v) =>
+                                                            updateParam(
+                                                                "bullEquityVol",
+                                                                v,
+                                                            )
+                                                        }
+                                                        unit="%"
+                                                        min={1}
+                                                        max={30}
+                                                        step={0.5}
+                                                        tooltip="Volatilidade anual da renda variável durante regime de alta. Tipicamente menor que a volatilidade em regime de baixa."
+                                                    />
+                                                    <div className="text-xs text-gray-400 font-medium mb-1 mt-2">
+                                                        Regime Bear (Baixa)
+                                                    </div>
+                                                    <Input
+                                                        label="Retorno Médio Bear"
+                                                        value={params.bearEquityMean}
+                                                        onChange={(v) =>
+                                                            updateParam(
+                                                                "bearEquityMean",
+                                                                v,
+                                                            )
+                                                        }
+                                                        unit="%"
+                                                        min={-40}
+                                                        max={5}
+                                                        step={0.5}
+                                                        tooltip="Retorno médio anual de renda variável durante o regime de baixa (bear market). Tipicamente negativo, refletindo períodos de recessão ou crise."
+                                                    />
+                                                    <Input
+                                                        label="Volatilidade Bear"
+                                                        value={params.bearEquityVol}
+                                                        onChange={(v) =>
+                                                            updateParam(
+                                                                "bearEquityVol",
+                                                                v,
+                                                            )
+                                                        }
+                                                        unit="%"
+                                                        min={5}
+                                                        max={60}
+                                                        step={0.5}
+                                                        tooltip="Volatilidade anual da renda variável durante regime de baixa. Tipicamente muito maior que no regime de alta (volatility clustering)."
+                                                    />
+                                                    <div className="text-xs text-gray-400 font-medium mb-1 mt-2">
+                                                        Probabilidades de Transição
+                                                    </div>
+                                                    <Input
+                                                        label="P(Bull → Bull)"
+                                                        value={params.bullToBullProb}
+                                                        onChange={(v) =>
+                                                            updateParam(
+                                                                "bullToBullProb",
+                                                                v,
+                                                            )
+                                                        }
+                                                        min={0.5}
+                                                        max={0.99}
+                                                        step={0.025}
+                                                        tooltip="Probabilidade de permanecer no regime de alta de um ano para o outro. Valor alto (ex: 0.875) significa que mercados de alta são persistentes. Com P=0.875, a duração média de um bull market é 1/(1-0.875) = 8 anos."
+                                                    />
+                                                    <Input
+                                                        label="P(Bear → Bear)"
+                                                        value={params.bearToBearProb}
+                                                        onChange={(v) =>
+                                                            updateParam(
+                                                                "bearToBearProb",
+                                                                v,
+                                                            )
+                                                        }
+                                                        min={0.1}
+                                                        max={0.9}
+                                                        step={0.025}
+                                                        tooltip="Probabilidade de permanecer no regime de baixa de um ano para o outro. Valor de 0.50 significa que a duração média de um bear market é 1/(1-0.50) = 2 anos. Bear markets tendem a ser mais curtos que bull markets."
+                                                    />
+                                                    <div className="text-xs text-gray-500 mt-2 p-1.5 bg-surface rounded space-y-1">
+                                                        <div className="font-semibold text-gray-400">
+                                                            Estado Estacionário:
+                                                        </div>
+                                                        {(() => {
+                                                            const pBull = (1 - params.bearToBearProb) / (2 - params.bullToBullProb - params.bearToBearProb);
+                                                            const pBear = 1 - pBull;
+                                                            const blendedReturn = pBull * params.bullEquityMean + pBear * params.bearEquityMean;
+                                                            return (
+                                                                <>
+                                                                    <div>
+                                                                        P(bull) = {(pBull * 100).toFixed(1)}% | P(bear) = {(pBear * 100).toFixed(1)}%
+                                                                    </div>
+                                                                    <div>
+                                                                        Retorno esperado ponderado: {blendedReturn.toFixed(1)}%
+                                                                    </div>
+                                                                    <div>
+                                                                        Duração média bull: {(1 / (1 - params.bullToBullProb)).toFixed(1)} anos | bear: {(1 / (1 - params.bearToBearProb)).toFixed(1)} anos
+                                                                    </div>
+                                                                </>
+                                                            );
+                                                        })()}
+                                                    </div>
+                                                </>
+                                            )}
+                                        </div>
+
                                         {/* Sequence Constraint - NON-IID MODE */}
                                         <div className="p-2 bg-midnight rounded border border-warning/30">
                                             <Toggle
@@ -1487,6 +1904,15 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                                                     /{" "}
                                                     {params.fixedIncomeTaxRate}%
                                                     RF
+                                                </div>
+                                            )}
+                                            {params.useRegimeSwitching && (
+                                                <div>
+                                                    •{" "}
+                                                    <span className="text-orange-400">
+                                                        Regime-Switching
+                                                    </span>
+                                                    : Bull {params.bullEquityMean}%/{params.bullEquityVol}%vol | Bear {params.bearEquityMean}%/{params.bearEquityVol}%vol
                                                 </div>
                                             )}
                                         </div>
@@ -2010,6 +2436,53 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                                 </div>
                             ) : (
                                 <div className="fade-in space-y-6">
+                                    {/* Results Tab Toggle: Monte Carlo vs Historical */}
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex bg-midnight rounded-lg p-1">
+                                            <button
+                                                onClick={() => setActiveResultsTab("montecarlo")}
+                                                className={`py-2 px-4 rounded-md text-xs font-medium transition-colors flex items-center gap-2 ${
+                                                    activeResultsTab === "montecarlo"
+                                                        ? "bg-accent text-white"
+                                                        : "text-gray-400 hover:text-gray-200"
+                                                }`}
+                                            >
+                                                <Icon name="Shuffle" size={14} />
+                                                Monte Carlo
+                                            </button>
+                                            <button
+                                                onClick={() => {
+                                                    if (!historicalResults) {
+                                                        runHistoricalBacktest();
+                                                    } else {
+                                                        setActiveResultsTab("historical");
+                                                    }
+                                                }}
+                                                disabled={isRunningHistorical}
+                                                className={`py-2 px-4 rounded-md text-xs font-medium transition-colors flex items-center gap-2 ${
+                                                    activeResultsTab === "historical"
+                                                        ? "bg-purple-600 text-white"
+                                                        : "text-gray-400 hover:text-gray-200"
+                                                } ${isRunningHistorical ? "opacity-50 cursor-wait" : ""}`}
+                                            >
+                                                <Icon name="History" size={14} />
+                                                {isRunningHistorical ? "Calculando..." : "Backtesting Historico"}
+                                            </button>
+                                        </div>
+                                        {activeResultsTab === "historical" && historicalResults && (
+                                            <button
+                                                onClick={runHistoricalBacktest}
+                                                disabled={isRunningHistorical}
+                                                className="text-xs text-gray-400 hover:text-purple-400 transition-colors flex items-center gap-1"
+                                            >
+                                                <Icon name="RefreshCw" size={12} />
+                                                Recalcular
+                                            </button>
+                                        )}
+                                    </div>
+
+                                    {/* ====== MONTE CARLO RESULTS ====== */}
+                                    {activeResultsTab === "montecarlo" && (<>
                                     {/* Optimization Result Card (Consumption Mode) */}
                                     {params.objectiveMode === "consumption" &&
                                         optimizationResult && (
@@ -2248,20 +2721,28 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                                     {/* Header Stats */}
                                     <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 lg:gap-4">
                                         <StatCard
-                                            title="Taxa de Sobrevivência"
-                                            value={results.survivalRate.toFixed(
-                                                1,
-                                            )}
+                                            title={results.mortalityAdjustedSurvivalRate != null
+                                                ? "Taxa de Sobrevivência (Ajustada)"
+                                                : "Taxa de Sobrevivência"}
+                                            value={results.mortalityAdjustedSurvivalRate != null
+                                                ? results.mortalityAdjustedSurvivalRate.toFixed(1)
+                                                : results.survivalRate.toFixed(1)}
                                             unit="%"
                                             icon="ShieldCheck"
                                             color={
-                                                results.survivalRate >= 95
+                                                (results.mortalityAdjustedSurvivalRate != null
+                                                    ? results.mortalityAdjustedSurvivalRate
+                                                    : results.survivalRate) >= 95
                                                     ? "accent"
-                                                    : results.survivalRate >= 80
+                                                    : (results.mortalityAdjustedSurvivalRate != null
+                                                        ? results.mortalityAdjustedSurvivalRate
+                                                        : results.survivalRate) >= 80
                                                       ? "warning"
                                                       : "danger"
                                             }
-                                            subtitle={`${results.totalSimulations - results.failedSimulations} de ${results.totalSimulations} cenários`}
+                                            subtitle={results.mortalityAdjustedSurvivalRate != null
+                                                ? <span>{results.survivalRate.toFixed(1)}% sem ajuste | {results.totalSimulations - results.failedSimulations} de {results.totalSimulations}</span>
+                                                : `${results.totalSimulations - results.failedSimulations} de ${results.totalSimulations} cenários`}
                                         />
                                         <StatCard
                                             title="Saque Médio Anual"
@@ -2385,6 +2866,9 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                                                 minimumWithdrawal={
                                                     params.minimumWithdrawalBRL
                                                 }
+                                                minimumWithdrawalAdjusted={
+                                                    results.minimumWithdrawalAdjusted
+                                                }
                                                 useMinimum={
                                                     params.useMinimumWithdrawal
                                                 }
@@ -2397,7 +2881,7 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                                                 {params.useMinimumWithdrawal &&
                                                     params.minimumWithdrawalBRL >
                                                         0 &&
-                                                    ` Linha vermelha indica o saque mínimo aceitável de ${formatCurrency(params.minimumWithdrawalBRL)}.`}
+                                                    ` Linha vermelha indica o saque mínimo aceitável de ${formatCurrency(params.minimumWithdrawalBRL)} (corrigido pela inflação IPCA).`}
                                             </p>
                                         </div>
                                         <WithdrawalStats
@@ -2671,6 +3155,18 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                                                             retorno líquido.
                                                         </span>
                                                     )}
+                                                </p>
+                                            )}
+
+                                            {/* Regime-switching stats */}
+                                            {results.regimeStats && (
+                                                <p>
+                                                    <span className="text-orange-400 font-medium">
+                                                        Regime-Switching:
+                                                    </span>{" "}
+                                                    Em média, {results.regimeStats.avgBullYears.toFixed(1)} anos em bull e{" "}
+                                                    {results.regimeStats.avgBearYears.toFixed(1)} anos em bear por simulação,
+                                                    com {results.regimeStats.avgBearEpisodes.toFixed(1)} episódios de bear market.
                                                 </p>
                                             )}
 
@@ -2986,6 +3482,131 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                                                 )}
                                         </div>
                                     </details>
+                                    </>)}
+                                    {/* ====== END MONTE CARLO RESULTS ====== */}
+
+                                    {/* ====== HISTORICAL BACKTESTING RESULTS ====== */}
+                                    {activeResultsTab === "historical" && historicalResults && (
+                                        <div className="space-y-6">
+                                            {/* Overview */}
+                                            <HistoricalOverview
+                                                data={historicalResults}
+                                                monteCarloSurvivalRate={results ? results.survivalRate : null}
+                                                formatCurrency={formatCurrency}
+                                            />
+
+                                            {/* Charts Row 1: Spaghetti + Percentiles */}
+                                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-6">
+                                                <div className="bg-surface rounded-xl p-4 border border-gray-800">
+                                                    <div className="flex items-center gap-2 mb-4">
+                                                        <Icon name="Activity" size={20} className="text-purple-400" />
+                                                        <h3 className="font-semibold">
+                                                            Trajetorias Individuais (Spaghetti)
+                                                        </h3>
+                                                    </div>
+                                                    <HistoricalSurvivalChart data={historicalResults} />
+                                                    <p className="text-xs text-gray-500 mt-3">
+                                                        Cada linha representa uma janela historica.
+                                                        Linhas vermelhas = falhas, azuis = sobreviveram.
+                                                        Melhor (verde) e pior (vermelho) destacados.
+                                                    </p>
+                                                </div>
+                                                <div className="bg-surface rounded-xl p-4 border border-gray-800">
+                                                    <div className="flex items-center gap-2 mb-4">
+                                                        <Icon name="LineChart" size={20} className="text-purple-400" />
+                                                        <h3 className="font-semibold">
+                                                            Patrimonio - Percentis (BRL)
+                                                        </h3>
+                                                    </div>
+                                                    <HistoricalPortfolioChart data={historicalResults} />
+                                                    <p className="text-xs text-gray-500 mt-3">
+                                                        Faixas de percentis do patrimonio ao longo do tempo,
+                                                        calculados a partir de todas as janelas historicas.
+                                                    </p>
+                                                </div>
+                                            </div>
+
+                                            {/* Charts Row 2: Withdrawal evolution */}
+                                            <div className="bg-surface rounded-xl p-4 border border-gray-800">
+                                                <div className="flex items-center gap-2 mb-4">
+                                                    <Icon name="Banknote" size={20} className="text-purple-400" />
+                                                    <h3 className="font-semibold">
+                                                        Evolucao dos Saques - Media vs Mediana
+                                                    </h3>
+                                                </div>
+                                                <HistoricalWithdrawalChart data={historicalResults} />
+                                                <p className="text-xs text-gray-500 mt-3">
+                                                    Media e mediana dos saques anuais em BRL,
+                                                    calculados a partir de todas as janelas historicas.
+                                                </p>
+                                            </div>
+
+                                            {/* Window Table */}
+                                            <div className="bg-surface rounded-xl p-4 border border-gray-800">
+                                                <div className="flex items-center gap-2 mb-4">
+                                                    <Icon name="Table" size={20} className="text-purple-400" />
+                                                    <h3 className="font-semibold">
+                                                        Detalhamento por Janela
+                                                    </h3>
+                                                    <span className="text-xs text-gray-500">
+                                                        (clique nos cabecalhos para ordenar)
+                                                    </span>
+                                                </div>
+                                                <HistoricalWindowTable
+                                                    data={historicalResults}
+                                                    formatCurrency={formatCurrency}
+                                                />
+                                            </div>
+
+                                            {/* Interpretation */}
+                                            <div className="bg-gradient-to-r from-surface to-deep rounded-xl p-5 border border-gray-800">
+                                                <div className="flex items-center gap-2 mb-3">
+                                                    <Icon name="MessageSquare" size={20} className="text-purple-400" />
+                                                    <h3 className="font-semibold">
+                                                        Interpretacao do Backtesting
+                                                    </h3>
+                                                </div>
+                                                <div className="text-sm text-gray-300 space-y-3">
+                                                    <p>
+                                                        <span className="text-purple-400 font-medium">Periodo analisado:</span>{" "}
+                                                        {historicalResults.dataRange.start}-{historicalResults.dataRange.end} ({historicalResults.dataRange.totalYears} anos de dados).
+                                                        Foram testadas {historicalResults.totalWindows} janelas rolantes,
+                                                        das quais {historicalResults.completeWindows} cobrem o horizonte completo de {params.years} anos.
+                                                    </p>
+                                                    {historicalResults.completeWindows > 0 && (
+                                                        <p>
+                                                            <span className="text-purple-400 font-medium">Sobrevivencia (janelas completas):</span>{" "}
+                                                            {historicalResults.survivalRate.toFixed(1)}%.
+                                                            {historicalResults.survivalRate >= 100
+                                                                ? " A estrategia sobreviveu em todas as janelas historicas completas."
+                                                                : ` ${historicalResults.failedWindows.length} janela(s) resultaram em falha.`
+                                                            }
+                                                        </p>
+                                                    )}
+                                                    <p>
+                                                        <span className="text-purple-400 font-medium">Limitacoes:</span>{" "}
+                                                        O backtesting historico testa a estrategia contra cenarios que realmente
+                                                        aconteceram, mas 30 anos de dados geram poucas janelas completas para
+                                                        horizontes longos. O Monte Carlo complementa ao testar milhares de
+                                                        cenarios possiveis, incluindo combinacoes que ainda nao ocorreram.
+                                                    </p>
+                                                    {historicalResults.bestWindow && historicalResults.worstWindow && (
+                                                        <p>
+                                                            <span className="text-purple-400 font-medium">Extremos:</span>{" "}
+                                                            Melhor inicio em {historicalResults.bestWindow.startYear} (patrimonio final de {formatCurrency(historicalResults.bestWindow.finalPortfolioBRL)}).
+                                                            Pior inicio em {historicalResults.worstWindow.startYear}
+                                                            {historicalResults.worstWindow.failed
+                                                                ? ` (falha no ano ${historicalResults.worstWindow.failureYear}).`
+                                                                : ` (patrimonio final de ${formatCurrency(historicalResults.worstWindow.finalPortfolioBRL)}).`
+                                                            }
+                                                        </p>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+                                    {/* ====== END HISTORICAL BACKTESTING RESULTS ====== */}
+
                                 </div>
                             )}
                         </main>

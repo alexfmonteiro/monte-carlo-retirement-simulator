@@ -42,9 +42,13 @@ MonteCarloEngine.prototype.runSimulationEndowment = function() {
         capeHistory: [currentCAPE],
         drawdownHistory: [0],
         inssIncomeBRL: [0],
+        cumulativeIpcaFactor: [1.0],
     };
 
     let cumulativeIpcaFactor = 1.0;
+
+    // Regime-switching state
+    let currentRegime = 'bull';
 
     for (let year = 1; year <= years; year++) {
         if (history.failed) {
@@ -57,10 +61,18 @@ MonteCarloEngine.prototype.runSimulationEndowment = function() {
             history.withdrawalSource.push('none');
             history.capeHistory.push(currentCAPE); history.drawdownHistory.push(0);
             history.inssIncomeBRL.push(0);
+            history.cumulativeIpcaFactor.push(history.cumulativeIpcaFactor[year - 1]);
             continue;
         }
 
-        const equityReturnYear = this.generateReturn(equityReturn / 100, equityVolatility / 100);
+        let equityReturnYear;
+        if (this.params.useRegimeSwitching) {
+            const result = this.generateRegimeSwitchingReturn(currentRegime);
+            equityReturnYear = result.return;
+            currentRegime = result.newRegime;
+        } else {
+            equityReturnYear = this.generateReturn(equityReturn / 100, equityVolatility / 100);
+        }
         const ipcaYear = this.generateIPCA(equityReturnYear);
         cumulativeIpcaFactor *= (1 + ipcaYear);
         const bondReturnYear = this.generateBondReturn(ipcaYear);
@@ -90,7 +102,7 @@ MonteCarloEngine.prototype.runSimulationEndowment = function() {
         // Enforce minimum withdrawal floor (like main app)
         const { useMinimumWithdrawal, minimumWithdrawalBRL, useINSS, currentAge, inssStartAge, inssMonthlyBRL } = this.params;
         const minimumWithdrawalUSD = useMinimumWithdrawal && minimumWithdrawalBRL > 0
-            ? minimumWithdrawalBRL / currentFX
+            ? (minimumWithdrawalBRL * cumulativeIpcaFactor) / currentFX
             : 0;
 
         // INSS income for this year
@@ -134,6 +146,7 @@ MonteCarloEngine.prototype.runSimulationEndowment = function() {
         history.withdrawalSource.push('endowment');
         history.capeHistory.push(currentCAPE); history.drawdownHistory.push(drawdown);
         history.inssIncomeBRL.push(annualINSSBRL);
+        history.cumulativeIpcaFactor.push(cumulativeIpcaFactor);
     }
     return history;
 };

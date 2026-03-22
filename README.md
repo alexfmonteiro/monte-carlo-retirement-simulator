@@ -13,6 +13,10 @@ Um simulador avançado de aposentadoria baseado em simulações de Monte Carlo, 
 - [Funcionalidades](#funcionalidades)
 - [Interface: Modo Simples e Avançado](#interface-modo-simples-e-avançado)
 - [Teoria Financeira](#teoria-financeira)
+  - [Spending Smile](#spending-smile-curva-de-gastos)
+  - [Regime-Switching](#regime-switching-modelo-markov-de-2-estados)
+  - [Ajuste por Mortalidade](#ajuste-por-mortalidade)
+  - [Backtesting Histórico](#backtesting-histórico)
 - [Parâmetros de Entrada](#parâmetros-de-entrada)
 - [Calibração dos Defaults](#calibração-dos-defaults)
 - [Interpretação dos Resultados](#interpretação-dos-resultados)
@@ -61,6 +65,7 @@ A clássica "Regra dos 4%" foi desenvolvida para o mercado americano com condiç
 |----------------|-----------|
 | **Distribuição T-Student** | Captura "cisnes negros" com caudas mais gordas que a Normal (df=5) |
 | **Modos Monte Carlo** | IID puro (padrão) ou NON-IID com limite de sequências negativas |
+| **Regime-Switching (Markov)** | Modelo de 2 estados (bull/bear) com probabilidades de transição — captura clustering de volatilidade |
 | **Correlação Dinâmica** | Correlação USD/BRL intensifica 2x em crises (base -0.4 → até -0.8) |
 | **Modelo IPCA + Juro Real** | RF modelada como IPCA + spread real, evitando juros reais negativos irrealistas |
 | **Reprodutibilidade** | Seed opcional para replicar simulações exatas (PRNG Mulberry32) |
@@ -72,7 +77,8 @@ A clássica "Regra dos 4%" foi desenvolvida para o mercado americano com condiç
 | **Guyton-Klinger** | Regras dinâmicas de preservação, prosperidade e inflação (parâmetros originais do paper de 2006) |
 | **Bucket Strategy** | Proteção contra sequence of returns risk (5 anos em RF) |
 | **Rebalanceamento Inteligente** | Saque de RV quando acima do alvo para rebalancear |
-| **Saque Mínimo Garantido** | Nunca sacar menos que o necessário para sobreviver |
+| **Spending Smile (Blanchett)** | Curva de gastos com 3 fases: mais no início (viagens), menos no meio, mais no final (saúde) |
+| **Saque Mínimo Garantido** | Nunca sacar menos que o necessário para sobreviver (corrigido pela inflação IPCA) |
 | **Benefício INSS** | Renda previdenciária reduz o saque do portfólio a partir da idade elegível; reajustada pelo IPCA simulado |
 
 ### Simulador Yale Endowment (`endowment.html`)
@@ -102,6 +108,25 @@ A clássica "Regra dos 4%" foi desenvolvida para o mercado americano com condiç
 | **Tolerância** | Quantos anos de stress você precisa tolerar para X% de sucesso |
 | **Impacto no Portfólio** | Quanto a mais foi sacado vs. recomendado |
 | **Recuperação** | % dos períodos de stress que eventualmente se recuperam |
+
+### Ajuste por Mortalidade (IBGE)
+
+| Funcionalidade | Descrição |
+|----------------|-----------|
+| **Tábua de Mortalidade IBGE 2023** | Probabilidades de morte (qx) por idade, idades 0-110, masculino e feminino |
+| **Taxa Ajustada por Mortalidade** | Pondera falhas pela probabilidade de já ter falecido — uma falha no ano 48 conta menos que no ano 15 |
+| **Perfis: Masculino / Feminino / Casal** | Casal usa probabilidade de sobrevivência conjunta (ao menos um vivo) |
+| **Expectativa de Vida** | Mostra expectativa de vida residual com base na idade atual e gênero |
+
+### Backtesting Histórico
+
+| Funcionalidade | Descrição |
+|----------------|-----------|
+| **Dados 1995-2024** | 30 anos de dados anuais: S&P 500, CDI/Selic, IPCA e câmbio BRL/USD |
+| **Janelas Rolantes** | Testa a estratégia em cada ano inicial possível (janelas completas e parciais) |
+| **Gráfico Spaghetti** | Todas as janelas sobrepostas — sobreviventes em azul, falhas em vermelho, melhor/pior em destaque |
+| **Comparativo Monte Carlo** | Mostra lado a lado a taxa de sucesso histórica vs. simulada |
+| **Tabela de Janelas** | Cada ano inicial com status, patrimônio final e pior saque, ordenável por coluna |
 
 ### Interface e Usabilidade
 
@@ -141,7 +166,9 @@ Exibe todos os parâmetros, incluindo:
 - Regras Guyton-Klinger
 - Saque Mínimo Necessário
 - Estratégia de Buckets
-- Modelagem Avançada (T-Student, correlação dinâmica, IPCA, tributação)
+- Curva de Gastos (Spending Smile)
+- Ajuste por Mortalidade (IBGE)
+- Modelagem Avançada (T-Student, correlação dinâmica, IPCA, tributação, regime-switching)
 
 > **Nota**: Trocar entre os modos não reseta valores. Se você ajustar um parâmetro no modo Avançado e voltar ao Simples, o valor ajustado é mantido.
 
@@ -269,6 +296,87 @@ Saque_ano_t = α × (Saque_ano_(t-1) × (1 + Inflação)) + (1 - α) × (Taxa_al
 
 O simulador compara a estratégia Endowment com SWR Fixo 4% e Guyton-Klinger na mesma tela, permitindo avaliar o trade-off entre estabilidade de renda (Endowment), simplicidade (SWR Fixo) e flexibilidade adaptativa (G-K).
 
+### Spending Smile (Curva de Gastos)
+
+Pesquisa de David Blanchett (2014) demonstrou que os gastos reais durante a aposentadoria não são constantes — seguem uma curva em forma de "U" (smile):
+
+```
+Gasto
+  ▲
+  │  ╲               ╱
+  │   ╲             ╱
+  │    ╲           ╱
+  │     ╲─────────╱
+  │
+  └──────────────────────▶ Anos
+    Início    Meio     Final
+    (120%)   (85%)    (110%)
+```
+
+- **Início (primeiro terço)**: Gastos elevados com viagens, lazer ativo, reformas
+- **Meio (segundo terço)**: Estabilização — rotina, menos viagens
+- **Final (terceiro terço)**: Custos crescentes com saúde, cuidadores, medicamentos
+
+O multiplicador é aplicado **após** as regras de Guyton-Klinger, de modo que os gatilhos de preservação e prosperidade continuam avaliando a taxa de saque sustentável. A transição entre fases usa interpolação por cosseno para evitar descontinuidades.
+
+### Regime-Switching (Modelo Markov de 2 Estados)
+
+Mercados financeiros exibem "clustering de volatilidade" — períodos de alta tendem a durar vários anos, assim como períodos de baixa. O modelo IID padrão não captura esse comportamento.
+
+```
+┌─────────┐  P=0.875  ┌─────────┐
+│  BULL   │──────────→│  BULL   │
+│ μ=12%   │           │         │
+│ σ=12%   │←──────────│         │
+└────┬────┘  P=0.50   └─────────┘
+     │ P=0.125              ▲ P=0.50
+     ▼                      │
+┌─────────┐           ┌─────────┐
+│  BEAR   │──────────→│  BEAR   │
+│ μ=-5%   │           │         │
+│ σ=25%   │←──────────│         │
+└─────────┘  P=0.875  └─────────┘
+```
+
+**Distribuição estacionária**: ~80% do tempo em bull, ~20% em bear. O retorno esperado ponderado (~8.6%) é consistente com médias históricas.
+
+### Ajuste por Mortalidade
+
+A taxa de sobrevivência bruta trata todas as falhas igualmente — uma falha no ano 48 tem o mesmo peso que uma no ano 15. Mas um aposentado de 60 anos tem probabilidade muito menor de chegar aos 108 do que aos 75.
+
+```
+Peso da falha = P(vivo no ano da falha)
+
+Exemplo (homem, início aos 60 anos):
+  Falha no ano 15 (idade 75): P(vivo) ≈ 74% → conta quase integralmente
+  Falha no ano 30 (idade 90): P(vivo) ≈ 25% → conta com 25% do peso
+  Falha no ano 48 (idade 108): P(vivo) ≈ 0.1% → praticamente irrelevante
+```
+
+O modo "Casal" usa: P(ao menos um vivo) = 1 - (1 - P_masculino) × (1 - P_feminino).
+
+### Backtesting Histórico
+
+Enquanto o Monte Carlo gera cenários aleatórios, o backtesting histórico responde: **"como minha estratégia teria performado em cada período real da história?"**
+
+```
+Dados: 1995-2024 (30 anos pós-Plano Real)
+
+Janela 1: 1995-2024 (30 anos, completa para horizonte ≤30)
+Janela 2: 1996-2024 (29 anos)
+Janela 3: 1997-2024 (28 anos)
+...
+Janela 26: 2020-2024 (5 anos, mínimo)
+```
+
+Para cada janela, aplica a mesma estratégia (G-K, buckets, impostos, smile, mínimo) usando retornos reais de S&P 500, CDI/Selic, IPCA e BRL/USD. O resultado inclui:
+- Taxa de sobrevivência entre janelas completas
+- Gráfico spaghetti (todas as trajetórias sobrepostas)
+- Melhor e pior ano de início
+- Comparação direta com o resultado Monte Carlo
+
+> **Limitação**: Com 30 anos de dados pós-Real, horizontes acima de 30 anos terão apenas janelas parciais. Os dados não cobrem cenários extremos como hiperinflação pré-Real.
+
 ### Correlação Dinâmica BRL/USD
 
 Em condições normais, a correlação entre retornos de RV e câmbio é aproximadamente -0.4 (quando bolsa cai, dólar sobe). Mas em crises extremas:
@@ -358,9 +466,20 @@ A implementação é um **glide path linear** — a alocação de RF decresce li
 | Parâmetro | Descrição | Default |
 |-----------|-----------|---------|
 | **Usar Mínimo** | Ativar saque mínimo garantido | Não |
-| **Valor Mínimo** | Saque mínimo anual em BRL | R$ 200.000 |
+| **Valor Mínimo** | Saque mínimo anual em BRL (valores de hoje) | R$ 200.000 |
 
-> **Importante**: O saque NUNCA será menor que o mínimo definido, mesmo que isso acelere a depleção do portfólio. Com INSS ativo, o mínimo se aplica ao saque do portfólio após o abatimento da renda previdenciária.
+> **Importante**: O saque NUNCA será menor que o mínimo definido (corrigido pela inflação IPCA), mesmo que isso acelere a depleção do portfólio. O valor informado representa o poder de compra atual — ao longo da simulação, o piso cresce com a inflação simulada. Com INSS ativo, o mínimo se aplica ao saque do portfólio após o abatimento da renda previdenciária.
+
+### Curva de Gastos (Spending Smile)
+
+| Parâmetro | Descrição | Default |
+|-----------|-----------|---------|
+| **Usar Spending Smile** | Ativar curva de gastos por fase da aposentadoria | Não |
+| **Multiplicador Início** | Fator para o primeiro terço (viagens, lazer) | 1.20 (120%) |
+| **Multiplicador Meio** | Fator para o terço intermediário (vida estável) | 0.85 (85%) |
+| **Multiplicador Final** | Fator para o terço final (saúde, cuidados) | 1.10 (110%) |
+
+> **Baseado em**: Blanchett (2014) — "Estimating the True Cost of Retirement". Pesquisa mostra que gastos reais em aposentadoria seguem uma curva em "U" (smile): mais altos no início (viagens e lazer ativo), menores no meio (vida estável), e subindo novamente no final (custos de saúde). O multiplicador é aplicado após as regras de Guyton-Klinger, ajustando o gasto efetivo sem afetar os gatilhos de preservação/prosperidade.
 
 ### Benefício INSS
 
@@ -395,6 +514,40 @@ A implementação é um **glide path linear** — a alocação de RF decresce li
 | **Modelo Tributário** | Descontar IR dos saques | Sim | - |
 | **IR RV** | Alíquota sobre ganhos de RV | 15% | Lei 14.754/2023 (investimentos offshore) |
 | **IR RF** | Alíquota sobre rendimentos RF | 15% | Tabela regressiva IR (>720 dias) |
+
+### Regime-Switching (Modelo Markov)
+
+| Parâmetro | Descrição | Default | Base Empírica |
+|-----------|-----------|---------|---------------|
+| **Usar Regime-Switching** | Substituir retornos IID por modelo de 2 estados | Não | - |
+| **Retorno Bull** | Retorno médio no regime de alta | 12.0% | Mercados em expansão |
+| **Volatilidade Bull** | Volatilidade no regime de alta | 12.0% | Vol menor em bull markets |
+| **Retorno Bear** | Retorno médio no regime de baixa | -5.0% | Mercados em contração |
+| **Volatilidade Bear** | Volatilidade no regime de baixa | 25.0% | Vol elevada em bear markets |
+| **P(Bull→Bull)** | Probabilidade de permanecer em bull | 0.875 | Duração média ~8 anos |
+| **P(Bear→Bear)** | Probabilidade de permanecer em bear | 0.50 | Duração média ~2 anos |
+
+> **Baseado em**: Hamilton (1989), Ang & Bekaert (2002). Quando ativado, substitui os parâmetros de retorno/volatilidade de RV por dois regimes com probabilidades de transição. A distribuição estacionária resulta em ~80% bull / ~20% bear. O retorno esperado ponderado é ~8.6%, próximo da média histórica do S&P 500.
+
+### Ajuste por Mortalidade
+
+| Parâmetro | Descrição | Default |
+|-----------|-----------|---------|
+| **Usar Ajuste por Mortalidade** | Ponderar taxa de sucesso pela probabilidade de sobrevivência | Não |
+| **Perfil** | Masculino, Feminino ou Casal | Masculino |
+
+> **Fonte**: IBGE Tábua Completa de Mortalidade 2023. Para o modo "Casal", usa probabilidade de sobrevivência conjunta: P(ao menos um vivo) = 1 - P(ambos falecidos). A taxa ajustada é sempre ≥ a taxa bruta, pois desconta falhas que ocorreriam após o falecimento provável.
+
+### Backtesting Histórico
+
+Não requer parâmetros adicionais — usa os mesmos parâmetros do Monte Carlo (portfólio, SWR, G-K, buckets, impostos, etc.), mas aplica retornos históricos reais em vez de simulados. Ativado via aba "Backtesting Histórico" no painel de resultados.
+
+| Dados | Período | Fonte |
+|-------|---------|-------|
+| **S&P 500 Total Return** | 1995-2024 | Retorno nominal anual em USD |
+| **CDI/Selic** | 1995-2024 | Retorno nominal anual (proxy RF brasileira) |
+| **IPCA** | 1995-2024 | Inflação anual oficial |
+| **BRL/USD** | 1995-2024 | Taxa de câmbio fim de ano |
 
 ---
 
@@ -460,6 +613,10 @@ Patrimônio Final Mediano: R$ 125.000
 | 80-90% | Atenção - considere ajustes |
 | < 80% | Risco elevado - revise parâmetros |
 
+Quando o ajuste por mortalidade está ativo, o card mostra duas taxas:
+- **Taxa ajustada** (destaque): Pondera falhas pela probabilidade de estar vivo. Sempre ≥ taxa bruta.
+- **Taxa bruta** (subtítulo): A taxa tradicional sem ponderação por mortalidade.
+
 ### Gráfico: Evolução do Portfólio
 
 Mostra bandas de percentis ao longo do tempo:
@@ -487,6 +644,16 @@ Os cards de saque exibem o valor anual em destaque e o **equivalente mensal** em
 - **Taxa de Tolerância vs. Sucesso**: "Se eu posso tolerar X anos de stress, qual minha taxa de sucesso?"
 - **Impacto no Portfólio**: Quanto a mais foi retirado vs. G-K recomendado
 - **Taxa de Recuperação**: % dos períodos de stress que eventualmente se recuperaram
+
+### Aba: Backtesting Histórico
+
+Acessível via toggle "Monte Carlo | Backtesting Histórico" no topo dos resultados (requer execução do Monte Carlo primeiro):
+
+- **Visão Geral**: Cards com taxa de sobrevivência histórica, janelas testadas, saque mediano/pior, comparação com Monte Carlo
+- **Gráfico Spaghetti**: Todas as trajetórias históricas sobrepostas — falhas em vermelho, melhor/pior em destaque
+- **Gráfico de Percentis**: Bandas P10-P90 do portfólio ao longo do tempo (derivadas das janelas históricas)
+- **Evolução dos Saques**: Média e mediana dos saques por ano entre todas as janelas
+- **Tabela de Janelas**: Cada ano inicial com status, duração, patrimônio final e pior saque
 
 ---
 
@@ -642,6 +809,14 @@ A abordagem em duas fases reduz o número total de simulações:
 7. **Perkins, B. (2020)**. *Die With Zero: Getting All You Can from Your Money and Your Life*. Houghton Mifflin Harcourt.
 
 8. **Brasil, Lei 14.754/2023**. Tributação de investimentos no exterior para residentes fiscais brasileiros. Alíquota de 15% sobre rendimentos offshore.
+
+9. **Blanchett, D. (2014)**. "Estimating the True Cost of Retirement." *Morningstar Investment Management*. Demonstra que gastos reais em aposentadoria seguem uma curva em "U" (spending smile).
+
+10. **Hamilton, J. D. (1989)**. "A New Approach to the Economic Analysis of Nonstationary Time Series and the Business Cycle." *Econometrica*. Introduz modelos de regime-switching para séries temporais econômicas.
+
+11. **Ang, A., & Bekaert, G. (2002)**. "Regime Switches in Interest Rates." *Journal of Business & Economic Statistics*. Aplica modelos Markov de regime-switching a retornos financeiros.
+
+12. **IBGE (2023)**. "Tábuas Completas de Mortalidade — Brasil." *Instituto Brasileiro de Geografia e Estatística*. Dados de mortalidade por idade e gênero usados no ajuste atuarial.
 
 ---
 

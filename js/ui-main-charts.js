@@ -132,6 +132,7 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                 medians,
                 years,
                 minimumWithdrawal,
+                minimumWithdrawalAdjusted,
                 useMinimum,
                 inssIncomeMeans,
                 useINSS,
@@ -175,11 +176,14 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                         },
                     ];
 
-                    // Add minimum withdrawal line if enabled
+                    // Add minimum withdrawal line if enabled (inflation-adjusted)
                     if (useMinimum && minimumWithdrawal > 0) {
+                        const minData = minimumWithdrawalAdjusted && minimumWithdrawalAdjusted.length > 0
+                            ? minimumWithdrawalAdjusted
+                            : Array(years + 1).fill(minimumWithdrawal);
                         datasets.push({
-                            label: "Mínimo Aceitável",
-                            data: Array(years + 1).fill(minimumWithdrawal),
+                            label: "Mínimo Aceitável (IPCA)",
+                            data: minData,
                             borderColor: "#ef4444",
                             borderWidth: 2,
                             borderDash: [10, 5],
@@ -268,7 +272,7 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                             chartRef.current.destroy();
                         }
                     };
-                }, [means, medians, years, minimumWithdrawal, useMinimum, inssIncomeMeans, useINSS]);
+                }, [means, medians, years, minimumWithdrawal, minimumWithdrawalAdjusted, useMinimum, inssIncomeMeans, useINSS]);
 
                 return (
                     <div className="chart-container">
