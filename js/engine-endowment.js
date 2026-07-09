@@ -75,10 +75,11 @@ MonteCarloEngine.prototype.runSimulationEndowment = function() {
         }
         const ipcaYear = this.generateIPCA(equityReturnYear);
         cumulativeIpcaFactor *= (1 + ipcaYear);
-        const bondReturnYear = this.generateBondReturn(ipcaYear);
+        const bondReturnYear = this.generateBondReturn(ipcaYear); // kept: preserves RNG draw order
+        const usdBondReturnYear = this.generateUsdBondReturn();
         currentFX = this.simulateCurrency(equityReturnYear, currentFX, year, cumulativeIpcaFactor);
 
-        const portfolioReturn = (1 - bondAllocation) * equityReturnYear + bondAllocation * bondReturnYear;
+        const portfolioReturn = (1 - bondAllocation) * equityReturnYear + bondAllocation * usdBondReturnYear;
         portfolioUSD *= (1 + portfolioReturn);
         if (portfolioUSD > peakPortfolioUSD) peakPortfolioUSD = portfolioUSD;
 

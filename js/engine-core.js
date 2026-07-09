@@ -145,6 +145,17 @@ class MonteCarloEngine {
         return ipca + realSpread + spreadVariation;
     }
 
+    // Return for the USD-denominated bond sleeve (US Treasuries / aggregate).
+    // The BRL sleeve keeps using generateBondReturn (IPCA + real spread);
+    // applying Brazilian nominal rates to a USD sleeve without FX
+    // translation was overstating USD returns.
+    generateUsdBondReturn() {
+        return this.randomNormal(
+            (this.params.usdBondReturn ?? 4.5) / 100,
+            (this.params.usdBondVolatility ?? 7.0) / 100,
+        );
+    }
+
     // Calculate dynamic correlation based on market stress
     getDynamicCorrelation(equityReturn) {
         if (!this.params.useDynamicCorrelation) {
