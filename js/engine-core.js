@@ -1410,6 +1410,7 @@ class MonteCarloEngine {
             withdrawalMedians,
             inssIncomeMeans,
             minimumWithdrawalAdjusted,
+            meanCumulativeIpca,
             recommendedWithdrawalMeans,
             stressChartData,
             survivalRate,

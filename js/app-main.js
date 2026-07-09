@@ -157,6 +157,21 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                     const masterSeed =
                         params.seed || Math.floor(Math.random() * 2147483647);
 
+                    // Success = survival target met AND (if a Die-With-Zero
+                    // target is set) the median final balance, deflated to
+                    // today's BRL, still meets the target.
+                    const meetsTarget = (results) => {
+                        if (results.survivalRate < targetRate) return false;
+                        if (params.targetEndBalance > 0) {
+                            const finalIpca =
+                                results.meanCumulativeIpca?.[params.years] ?? 1;
+                            const medianFinalReal =
+                                results.medianFinalPortfolio / finalIpca;
+                            return medianFinalReal >= params.targetEndBalance;
+                        }
+                        return true;
+                    };
+
                     let minSWR = 0.5;
                     let maxSWR = 15.0;
                     let bestSWR = minSWR;
@@ -199,7 +214,7 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                             totalSimulations,
                         });
 
-                        if (results.survivalRate >= targetRate) {
+                        if (meetsTarget(results)) {
                             // Can try higher SWR
                             bestSWR = midSWR;
                             bestResults = results;
@@ -252,7 +267,7 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                             totalSimulations,
                         });
 
-                        if (results.survivalRate >= targetRate) {
+                        if (meetsTarget(results)) {
                             bestSWR = midSWR;
                             bestResults = results;
                             minSWR = midSWR;
@@ -282,13 +297,13 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                         survivalRate: finalResults.survivalRate,
                         medianEndBalance: finalResults.medianFinalPortfolio,
                         monthlyWithdrawalBRL:
-                            (params.initialPortfolioUSD *
-                                params.initialFX *
+                            ((params.initialPortfolioUSD * params.initialFX +
+                                (params.initialPortfolioBRL || 0)) *
                                 (bestSWR / 100)) /
                             12,
                         annualWithdrawalBRL:
-                            params.initialPortfolioUSD *
-                            params.initialFX *
+                            (params.initialPortfolioUSD * params.initialFX +
+                                (params.initialPortfolioBRL || 0)) *
                             (bestSWR / 100),
                         confidenceInterval: [
                             Math.max(0.5, bestSWR - tolerance),
