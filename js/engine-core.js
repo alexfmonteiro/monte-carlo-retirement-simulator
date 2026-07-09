@@ -22,7 +22,8 @@ class MonteCarloEngine {
 
     // Box-Muller transform for normal distribution
     randomNormal(mean = 0, std = 1) {
-        const u1 = this.random();
+        let u1 = this.random();
+        if (u1 < 1e-12) u1 = 1e-12; // Mulberry32 can emit exactly 0; log(0) = -Infinity
         const u2 = this.random();
         const z0 =
             Math.sqrt(-2.0 * Math.log(u1)) *
@@ -32,6 +33,10 @@ class MonteCarloEngine {
 
     // Generate random number from Student's T distribution (fatter tails)
     randomStudentT(mean, std, df) {
+        // Chi-squared is built by summing df squared normals, so df must be
+        // an integer; df <= 2 has undefined/infinite variance for the scaling.
+        df = Math.max(3, Math.round(df));
+
         // Generate T-distributed random variable
         // T = Z / sqrt(V/df) where Z ~ N(0,1) and V ~ Chi-squared(df)
         const z = this.randomNormal(0, 1);
@@ -84,6 +89,17 @@ class MonteCarloEngine {
         return { return: ret, newRegime };
     }
 
+    // Draw the starting regime from the Markov chain's stationary
+    // distribution instead of always starting in 'bull' (which biases
+    // early-retirement sequence risk downward).
+    initialRegime() {
+        if (!this.params.useRegimeSwitching) return 'bull';
+        const pLeaveBull = 1 - this.params.bullToBullProb;
+        const pLeaveBear = 1 - this.params.bearToBearProb;
+        const pBull = pLeaveBear / (pLeaveBull + pLeaveBear);
+        return this.random() < pBull ? 'bull' : 'bear';
+    }
+
     // Generate IPCA for the year (correlated with economic conditions)
     generateIPCA(equityReturn) {
         if (!this.params.useIPCAModel) {
@@ -127,6 +143,17 @@ class MonteCarloEngine {
 
         // Nominal return = IPCA + Real Spread + small random component
         return ipca + realSpread + spreadVariation;
+    }
+
+    // Return for the USD-denominated bond sleeve (US Treasuries / aggregate).
+    // The BRL sleeve keeps using generateBondReturn (IPCA + real spread);
+    // applying Brazilian nominal rates to a USD sleeve without FX
+    // translation was overstating USD returns.
+    generateUsdBondReturn() {
+        return this.randomNormal(
+            (this.params.usdBondReturn ?? 4.5) / 100,
+            (this.params.usdBondVolatility ?? 7.0) / 100,
+        );
     }
 
     // Calculate dynamic correlation based on market stress
@@ -186,35 +213,38 @@ class MonteCarloEngine {
         return equityTax + bondTax;
     }
 
-    // Generate correlated random returns
-    generateCorrelatedReturns(correlation) {
-        const z1 = this.randomNormal();
-        const z2 = this.randomNormal();
-        const correlatedZ2 =
-            correlation * z1 +
-            Math.sqrt(1 - correlation * correlation) * z2;
-        return [z1, correlatedZ2];
-    }
+    // Simulate BRL/USD dynamics.
+    // - The FX shock is correlated with the ACTUAL equity shock of the year
+    //   (z-score of the realized equity return), so the realized equity-FX
+    //   correlation matches getDynamicCorrelation(). The previous version
+    //   correlated against a fresh, discarded normal — realized corr was ~0.
+    // - Mean reversion targets a PPP-consistent fair value: initial FX
+    //   inflated by accumulated IPCA and deflated by accumulated US
+    //   inflation, instead of the nominal initial FX forever.
+    simulateCurrency(equityReturn, baseFX, year, cumIpcaFactor, volatilityFX = 0.15) {
+        const correlation = this.getDynamicCorrelation(equityReturn);
+        const equityMean = this.params.equityReturn / 100;
+        const equityVol = this.params.equityVolatility / 100;
+        const zEquity = equityVol > 0
+            ? Math.max(-4, Math.min(4, (equityReturn - equityMean) / equityVol))
+            : 0;
+        const z = this.randomNormal();
+        const fxShock =
+            correlation * zEquity +
+            Math.sqrt(1 - correlation * correlation) * z;
 
-    // Simulate currency dynamics with dynamic correlation
-    simulateCurrency(equityReturn, baseFX, volatilityFX = 0.15) {
-        // Get dynamic correlation based on market stress
-        const correlation =
-            this.getDynamicCorrelation(equityReturn);
-        const [_, fxShock] =
-            this.generateCorrelatedReturns(correlation);
-
-        // Mean reversion component
-        const meanFX = this.params.initialFX;
+        const usdInflation = (this.params.usdInflation ?? 2.0) / 100;
+        const fairFX =
+            this.params.initialFX * (cumIpcaFactor ?? 1) /
+            Math.pow(1 + usdInflation, year ?? 1);
         const reversionSpeed = 0.1;
-        const drift = (reversionSpeed * (meanFX - baseFX)) / meanFX;
+        const drift = (reversionSpeed * (fairFX - baseFX)) / baseFX;
 
-        // Stronger FX move when equity is negative
+        // Stronger FX move when equity is negative (flight to USD)
         const stressMultiplier = equityReturn < 0 ? 1.3 : 1.0;
-        const fxReturn =
-            drift + fxShock * volatilityFX * stressMultiplier;
+        const fxReturn = drift + fxShock * volatilityFX * stressMultiplier;
 
-        return baseFX * (1 + fxReturn);
+        return Math.max(baseFX * 0.5, baseFX * (1 + fxReturn));
     }
 
     // Spending Smile multiplier: retirees spend more early (travel/leisure),
@@ -319,7 +349,10 @@ class MonteCarloEngine {
         };
     }
 
-    // Run single simulation path
+    // Run single simulation path.
+    // All spending is denominated in BRL (the retiree's spending currency):
+    // the target is indexed by inflation in BRL and converted to USD at the
+    // CURRENT FX rate only to size the sale from the USD sleeve.
     runSimulation() {
         const {
             initialPortfolioUSD,
@@ -328,8 +361,6 @@ class MonteCarloEngine {
             withdrawalRate,
             equityReturn,
             equityVolatility,
-            bondReturn,
-            bondVolatility,
             inflation,
             years,
             tentInitialBondPercent,
@@ -343,85 +374,68 @@ class MonteCarloEngine {
             currentAge,
             inssStartAge,
             inssMonthlyBRL,
+            useIPCAModel,
         } = this.params;
 
-        // USD portfolio (equity + bonds, subject to FX variation)
+        // USD sleeve (equity + US bonds, subject to FX variation)
         let portfolioUSD = initialPortfolioUSD;
         let currentFX = initialFX;
 
-        // BRL portfolio (Brazilian fixed income, no FX exposure)
+        // BRL sleeve (Brazilian fixed income, no FX exposure)
         let portfolioBRLFixed = initialPortfolioBRL;
 
-        // Total portfolio in BRL
-        let portfolioBRL =
-            portfolioUSD * currentFX + portfolioBRLFixed;
+        let portfolioBRL = portfolioUSD * currentFX + portfolioBRLFixed;
 
-        // Initial allocation for USD portfolio only
+        // Allocation applies to the USD sleeve only
         let bondAllocation = tentInitialBondPercent / 100;
         let equityAllocation = 1 - bondAllocation;
-
-        // Separate tracking for USD portfolio (bucket strategy applies here)
         let bondPortionUSD = portfolioUSD * bondAllocation;
         let equityPortionUSD = portfolioUSD * equityAllocation;
 
-        // Initial withdrawal calculated on total portfolio in BRL
+        // Spending target in BRL, adjusted by Guyton-Klinger + inflation
         const totalInitialPortfolioBRL =
             portfolioUSD * initialFX + initialPortfolioBRL;
-        const initialWithdrawalBRL =
+        let currentWithdrawalBRL =
             totalInitialPortfolioBRL * (withdrawalRate / 100);
-        let currentWithdrawalUSD = initialWithdrawalBRL / initialFX;
         const initialWithdrawalRate = withdrawalRate / 100;
 
         let previousReturn = 0;
         let cumulativeIpcaFactor = 1.0;
-
-        // Track consecutive negative returns for constraint
         let consecutiveNegativeYears = 0;
+        let currentRegime = this.initialRegime();
 
-        // Regime-switching state
-        let currentRegime = 'bull';
-
-        // Stress period tracking (now: when minimum withdrawal was enforced)
+        // Stress period tracking (when minimum withdrawal was enforced)
         let inStressPeriod = false;
         let currentStressStart = null;
-        let currentStressExtraWithdrawn = 0; // Extra amount withdrawn above recommended
+        let currentStressExtraWithdrawn = 0;
 
         const history = {
             portfolioUSD: [portfolioUSD],
             portfolioBRL: [portfolioBRL],
-            withdrawalBRL: [currentWithdrawalUSD * currentFX],
-            withdrawalUSD: [currentWithdrawalUSD],
-            recommendedWithdrawalBRL: [
-                currentWithdrawalUSD * currentFX,
-            ], // What G-K would have recommended
+            withdrawalBRL: [currentWithdrawalBRL],
+            withdrawalUSD: [currentWithdrawalBRL / currentFX],
+            recommendedWithdrawalBRL: [currentWithdrawalBRL],
             fxRate: [currentFX],
             bondAllocation: [bondAllocation * 100],
             rulesApplied: [null],
-            minimumEnforced: [false], // Track when minimum was enforced
+            minimumEnforced: [false],
             failed: false,
             failureYear: null,
             failureType: null,
             failureCause: null,
-            // Stress tracking (periods where minimum withdrawal was enforced)
-            stressPeriods: [], // Array of {startYear, endYear, duration, totalExtraWithdrawn, recovered}
+            stressPeriods: [],
             yearlyStressData: [
-                {
-                    minimumEnforced: false,
-                    extraWithdrawn: 0,
-                    percentExtra: 0,
-                },
+                { minimumEnforced: false, extraWithdrawn: 0, percentExtra: 0 },
             ],
             withdrawalSource: ["initial"],
             inssIncomeBRL: [0],
             cumulativeIpcaFactor: [1.0],
             smileMultiplier: [1.0],
-            regimeHistory: ['bull'],
+            regimeHistory: [currentRegime],
         };
 
         for (let year = 1; year <= years; year++) {
-            // Check if already failed
             if (history.failed) {
-                // Pad remaining years
                 history.portfolioUSD.push(0);
                 history.portfolioBRL.push(0);
                 history.withdrawalBRL.push(0);
@@ -444,8 +458,7 @@ class MonteCarloEngine {
                 continue;
             }
 
-            // Generate equity return with appropriate distribution (Normal or Student's T)
-            // or regime-switching model if enabled
+            // --- Market returns for the year ---
             let equityReturnYear;
             if (this.params.useRegimeSwitching) {
                 const result = this.generateRegimeSwitchingReturn(currentRegime);
@@ -458,136 +471,45 @@ class MonteCarloEngine {
                 );
             }
 
-            // Apply constraint on consecutive negative returns (NON-IID MODE)
-            // WARNING: This constraint breaks the IID assumption of pure Monte Carlo
-            // Only enabled if useSequenceConstraint is true
+            // Optional non-IID constraint on consecutive negative returns
             if (this.params.useSequenceConstraint) {
                 if (equityReturnYear < 0) {
                     consecutiveNegativeYears++;
-                    // If we've hit the max negative sequence, force a positive/neutral return
-                    if (
-                        consecutiveNegativeYears >=
-                        this.params.maxNegativeSequence
-                    ) {
-                        // Generate a modest positive return (0% to +10%) using seeded RNG
+                    if (consecutiveNegativeYears >= this.params.maxNegativeSequence) {
                         equityReturnYear = this.random() * 0.1;
-                        consecutiveNegativeYears = 0; // Reset counter
+                        consecutiveNegativeYears = 0;
                     }
                 } else {
-                    consecutiveNegativeYears = 0; // Reset counter on positive year
+                    consecutiveNegativeYears = 0;
                 }
             }
 
-            // Generate IPCA for the year (correlated with equity if using IPCA model)
             const ipcaYear = this.generateIPCA(equityReturnYear);
             cumulativeIpcaFactor *= (1 + ipcaYear);
 
-            // Generate bond return (IPCA + Real Spread if using IPCA model)
-            const bondReturnYear =
-                this.generateBondReturn(ipcaYear);
+            const brlBondReturnYear = this.generateBondReturn(ipcaYear); // BRL sleeve
+            const usdBondReturnYear = this.generateUsdBondReturn();      // USD sleeve bonds
 
-            // Apply returns to BRL portfolio (Brazilian fixed income, no FX exposure)
-            portfolioBRLFixed *= 1 + bondReturnYear;
+            // Total BRL value before this year's returns (for previousReturn)
+            const prevTotalBRL = portfolioUSD * currentFX + portfolioBRLFixed;
 
-            // Update FX with dynamic correlation (only affects USD portfolio)
+            // Grow the BRL sleeve
+            portfolioBRLFixed *= (1 + brlBondReturnYear);
+
+            // Update FX (correlated with the actual equity shock, PPP anchor)
             currentFX = this.simulateCurrency(
                 equityReturnYear,
                 currentFX,
+                year,
+                cumulativeIpcaFactor,
             );
 
-            // Calculate gain ratio for tax purposes (estimate based on years invested)
-            const gainRatio = Math.min(0.6, year * 0.06);
-
-            // Calculate minimum withdrawal in USD for this year (inflation-adjusted)
-            const minimumWithdrawalUSD =
-                useMinimumWithdrawal && minimumWithdrawalBRL > 0
-                    ? (minimumWithdrawalBRL * cumulativeIpcaFactor) / currentFX
-                    : 0;
-
-            // INSS income for this year
-            const ageThisYear = currentAge + year - 1;
-            const inssActive = useINSS && inssMonthlyBRL > 0 && ageThisYear >= inssStartAge;
-            const annualINSSUSD = inssActive ? (inssMonthlyBRL * 12 * cumulativeIpcaFactor) / currentFX : 0;
-            const annualINSSBRL = annualINSSUSD * currentFX;
-
-            // Spending Smile: adjust actual spending while keeping G-K base clean
-            let smileMultiplier = 1.0;
-            if (this.params.useSpendingSmile) {
-                smileMultiplier = this.getSpendingSmileMultiplier(year, years);
-            }
-
-            // Bucket Strategy: In bucket years, withdrawals come from bonds only
-            let withdrawalSource = "mixed";
-            let recommendedWithdrawalUSD = currentWithdrawalUSD;
-            let actualWithdrawalUSD = currentWithdrawalUSD;
-            let portfolioWithdrawalUSD = currentWithdrawalUSD;
-            let gkRuleApplied = null;
-            let gkBaseWithdrawalUSD = currentWithdrawalUSD;
-            let taxPaid = 0;
-
+            // Grow the USD sleeve
             if (useBucketStrategy && year <= bucketYears) {
-                // Apply returns to each portion separately
-                equityPortionUSD *= 1 + equityReturnYear;
-                bondPortionUSD *= 1 + bondReturnYear;
-
-                withdrawalSource = "bonds";
-
-                // Apply Guyton-Klinger rules to get recommended withdrawal
-                const totalPortfolioUSD =
-                    equityPortionUSD + bondPortionUSD;
-                const gkResult = this.applyGuytonKlinger(
-                    currentWithdrawalUSD,
-                    totalPortfolioUSD,
-                    initialWithdrawalRate,
-                    previousReturn,
-                    inflation / 100,
-                );
-                gkBaseWithdrawalUSD = gkResult.withdrawal;
-                recommendedWithdrawalUSD = gkBaseWithdrawalUSD * smileMultiplier;
-                gkRuleApplied = gkResult.ruleApplied;
-
-                // ENFORCE MINIMUM: INSS reduces portfolio withdrawal; minimum applies to portfolio portion
-                portfolioWithdrawalUSD = Math.max(0, recommendedWithdrawalUSD - annualINSSUSD);
-                const effectiveMinimumUSD_b = Math.max(0, minimumWithdrawalUSD - annualINSSUSD);
-                actualWithdrawalUSD = useMinimumWithdrawal
-                    ? Math.max(portfolioWithdrawalUSD, effectiveMinimumUSD_b)
-                    : portfolioWithdrawalUSD;
-
-                // Calculate tax on withdrawal
-                taxPaid = this.calculateTax(
-                    actualWithdrawalUSD,
-                    gainRatio,
-                    bondAllocation,
-                );
-
-                // Total withdrawal including tax
-                const totalWithdrawalUSD =
-                    actualWithdrawalUSD + taxPaid;
-
-                // Withdraw from bonds (including tax)
-                bondPortionUSD -= totalWithdrawalUSD;
-
-                // If bonds depleted, take from equity
-                if (bondPortionUSD < 0) {
-                    equityPortionUSD += bondPortionUSD;
-                    bondPortionUSD = 0;
-                    withdrawalSource = "equity_forced";
-                }
-
+                equityPortionUSD *= (1 + equityReturnYear);
+                bondPortionUSD *= (1 + usdBondReturnYear);
                 portfolioUSD = equityPortionUSD + bondPortionUSD;
-
-                // Recalculate allocation
-                bondAllocation =
-                    portfolioUSD > 0
-                        ? bondPortionUSD / portfolioUSD
-                        : 0;
-                equityAllocation = 1 - bondAllocation;
-
-                // Update current withdrawal for next iteration (use pre-smile G-K output)
-                currentWithdrawalUSD = gkBaseWithdrawalUSD;
             } else {
-                // Standard strategy: Tent/Glidepath with mixed withdrawals
-
                 // Tent strategy: adjust allocation
                 if (year <= tentDuration) {
                     bondAllocation = tentInitialBondPercent / 100;
@@ -605,117 +527,145 @@ class MonteCarloEngine {
                 }
                 equityAllocation = 1 - bondAllocation;
 
-                // Calculate portfolio return
-                const portfolioReturn =
+                const usdReturn =
                     equityAllocation * equityReturnYear +
-                    bondAllocation * bondReturnYear;
-
-                // Apply return to portfolio (before withdrawal)
-                portfolioUSD *= 1 + portfolioReturn;
-
-                // Update portions for tracking
+                    bondAllocation * usdBondReturnYear;
+                portfolioUSD *= (1 + usdReturn);
                 bondPortionUSD = portfolioUSD * bondAllocation;
                 equityPortionUSD = portfolioUSD * equityAllocation;
-
-                // REBALANCING LOGIC: If equity performed very well, withdraw from equity to rebalance
-                // This helps maintain target allocation and avoids depleting fixed income unnecessarily
-                const currentEquityPercent =
-                    equityPortionUSD / portfolioUSD;
-                const targetEquityPercent = equityAllocation;
-                const rebalanceThreshold = 0.1; // 10% above target triggers equity withdrawal
-
-                let preferEquityWithdrawal = false;
-                if (
-                    equityReturnYear > 0.15 &&
-                    currentEquityPercent >
-                        targetEquityPercent + rebalanceThreshold
-                ) {
-                    // Equity had a great year (>15%) and is significantly above target allocation
-                    preferEquityWithdrawal = true;
-                    withdrawalSource = "equity_rebalance";
-                }
-
-                // Apply Guyton-Klinger rules to get recommended withdrawal
-                const gkResult = this.applyGuytonKlinger(
-                    currentWithdrawalUSD,
-                    portfolioUSD,
-                    initialWithdrawalRate,
-                    previousReturn,
-                    inflation / 100,
-                );
-                gkBaseWithdrawalUSD = gkResult.withdrawal;
-                recommendedWithdrawalUSD = gkBaseWithdrawalUSD * smileMultiplier;
-                gkRuleApplied = gkResult.ruleApplied;
-
-                // ENFORCE MINIMUM: INSS reduces portfolio withdrawal; minimum applies to portfolio portion
-                portfolioWithdrawalUSD = Math.max(0, recommendedWithdrawalUSD - annualINSSUSD);
-                const effectiveMinimumUSD_s = Math.max(0, minimumWithdrawalUSD - annualINSSUSD);
-                actualWithdrawalUSD = useMinimumWithdrawal
-                    ? Math.max(portfolioWithdrawalUSD, effectiveMinimumUSD_s)
-                    : portfolioWithdrawalUSD;
-
-                // Calculate tax on withdrawal
-                taxPaid = this.calculateTax(
-                    actualWithdrawalUSD,
-                    gainRatio,
-                    bondAllocation,
-                );
-
-                // Total withdrawal including tax
-                const totalWithdrawalUSD =
-                    actualWithdrawalUSD + taxPaid;
-
-                // Make withdrawal - prioritize equity if rebalancing
-                if (preferEquityWithdrawal) {
-                    // Withdraw from equity first to rebalance
-                    const maxEquityWithdrawal = Math.max(
-                        0,
-                        equityPortionUSD -
-                            portfolioUSD * targetEquityPercent,
-                    );
-                    const equityWithdrawal = Math.min(
-                        totalWithdrawalUSD,
-                        maxEquityWithdrawal,
-                    );
-                    const bondWithdrawal =
-                        totalWithdrawalUSD - equityWithdrawal;
-
-                    equityPortionUSD -= equityWithdrawal;
-                    bondPortionUSD -= bondWithdrawal;
-                    portfolioUSD =
-                        equityPortionUSD + bondPortionUSD;
-                } else {
-                    // Standard proportional withdrawal
-                    portfolioUSD -= totalWithdrawalUSD;
-                }
-
-                // Update current withdrawal for next iteration (use pre-smile G-K output)
-                currentWithdrawalUSD = gkBaseWithdrawalUSD;
-
-                previousReturn = portfolioReturn;
             }
 
-            // Calculate values in BRL
-            const actualWithdrawalBRL =
-                actualWithdrawalUSD * currentFX;
-            const recommendedWithdrawalBRL =
-                recommendedWithdrawalUSD * currentFX;
+            // Total portfolio after returns, before withdrawal (BRL)
+            const totalPortfolioBRL =
+                portfolioUSD * currentFX + portfolioBRLFixed;
 
-            // Check if minimum was enforced (stress condition)
+            // Total return in BRL terms drives the G-K inflation-skip rule
+            const portfolioReturn =
+                prevTotalBRL > 0 ? totalPortfolioBRL / prevTotalBRL - 1 : 0;
+
+            // --- Withdrawal sizing (all BRL) ---
+            const gkInflation = useIPCAModel ? ipcaYear : inflation / 100;
+            const gkResult = this.applyGuytonKlinger(
+                currentWithdrawalBRL,
+                totalPortfolioBRL,
+                initialWithdrawalRate,
+                previousReturn,
+                gkInflation,
+            );
+            const gkBaseWithdrawalBRL = gkResult.withdrawal;
+            const gkRuleApplied = gkResult.ruleApplied;
+
+            let smileMultiplier = 1.0;
+            if (this.params.useSpendingSmile) {
+                smileMultiplier = this.getSpendingSmileMultiplier(year, years);
+            }
+            const recommendedWithdrawalBRL =
+                gkBaseWithdrawalBRL * smileMultiplier;
+
+            const minimumBRLYear =
+                useMinimumWithdrawal && minimumWithdrawalBRL > 0
+                    ? minimumWithdrawalBRL * cumulativeIpcaFactor
+                    : 0;
+
+            const ageThisYear = currentAge + year - 1;
+            const inssActive =
+                useINSS && inssMonthlyBRL > 0 && ageThisYear >= inssStartAge;
+            const annualINSSBRL = inssActive
+                ? inssMonthlyBRL * 12 * cumulativeIpcaFactor
+                : 0;
+
+            // INSS reduces what the portfolio must fund; the minimum applies
+            // to the portfolio portion
+            const portfolioWithdrawalBRL = Math.max(
+                0,
+                recommendedWithdrawalBRL - annualINSSBRL,
+            );
+            const effectiveMinimumBRL = Math.max(
+                0,
+                minimumBRLYear - annualINSSBRL,
+            );
+            const actualWithdrawalBRL = useMinimumWithdrawal
+                ? Math.max(portfolioWithdrawalBRL, effectiveMinimumBRL)
+                : portfolioWithdrawalBRL;
+
+            const gainRatio = Math.min(0.6, year * 0.06);
+            const taxPaid = this.calculateTax(
+                actualWithdrawalBRL,
+                gainRatio,
+                bondAllocation,
+            );
+            const totalNeedBRL = actualWithdrawalBRL + taxPaid;
+
+            // --- Fund the withdrawal: BRL sleeve first (it pays BRL bills
+            // without FX conversion), then the USD sleeve ---
+            const fromBRLSleeve = Math.min(
+                Math.max(0, portfolioBRLFixed),
+                totalNeedBRL,
+            );
+            portfolioBRLFixed -= fromBRLSleeve;
+            const remainderUSD = (totalNeedBRL - fromBRLSleeve) / currentFX;
+
+            let withdrawalSource = fromBRLSleeve > 0 ? "brl_fixed" : "mixed";
+            if (remainderUSD > 0) {
+                if (useBucketStrategy && year <= bucketYears) {
+                    withdrawalSource = "bonds";
+                    bondPortionUSD -= remainderUSD;
+                    if (bondPortionUSD < 0) {
+                        equityPortionUSD += bondPortionUSD;
+                        bondPortionUSD = 0;
+                        withdrawalSource = "equity_forced";
+                    }
+                    portfolioUSD = equityPortionUSD + bondPortionUSD;
+                    bondAllocation =
+                        portfolioUSD > 0 ? bondPortionUSD / portfolioUSD : 0;
+                    equityAllocation = 1 - bondAllocation;
+                } else {
+                    // Rebalance-aware withdrawal: after a strong equity year,
+                    // sell equity first to move back toward target allocation
+                    const currentEquityPercent =
+                        portfolioUSD > 0 ? equityPortionUSD / portfolioUSD : 0;
+                    const rebalanceThreshold = 0.1;
+                    if (
+                        equityReturnYear > 0.15 &&
+                        currentEquityPercent >
+                            equityAllocation + rebalanceThreshold
+                    ) {
+                        withdrawalSource = "equity_rebalance";
+                        const maxEquityWithdrawal = Math.max(
+                            0,
+                            equityPortionUSD -
+                                portfolioUSD * equityAllocation,
+                        );
+                        const equityWithdrawal = Math.min(
+                            remainderUSD,
+                            maxEquityWithdrawal,
+                        );
+                        equityPortionUSD -= equityWithdrawal;
+                        bondPortionUSD -= remainderUSD - equityWithdrawal;
+                        portfolioUSD = equityPortionUSD + bondPortionUSD;
+                    } else {
+                        portfolioUSD -= remainderUSD;
+                        bondPortionUSD = portfolioUSD * bondAllocation;
+                        equityPortionUSD = portfolioUSD * equityAllocation;
+                    }
+                }
+            }
+
+            // Base for next year's G-K is the pre-smile G-K output
+            currentWithdrawalBRL = gkBaseWithdrawalBRL;
+            previousReturn = portfolioReturn;
+
+            // --- Stress bookkeeping (minimum enforced) ---
             const minimumWasEnforced =
                 useMinimumWithdrawal &&
                 minimumWithdrawalBRL > 0 &&
-                actualWithdrawalUSD >
-                    portfolioWithdrawalUSD * 1.001; // Small tolerance for float comparison
-
+                actualWithdrawalBRL > portfolioWithdrawalBRL * 1.001;
             const extraWithdrawnBRL = minimumWasEnforced
-                ? actualWithdrawalBRL - recommendedWithdrawalBRL
+                ? actualWithdrawalBRL - portfolioWithdrawalBRL
                 : 0;
             const percentExtra =
-                minimumWasEnforced && recommendedWithdrawalBRL > 0
-                    ? (extraWithdrawnBRL /
-                          recommendedWithdrawalBRL) *
-                      100
+                minimumWasEnforced && portfolioWithdrawalBRL > 0
+                    ? (extraWithdrawnBRL / portfolioWithdrawalBRL) * 100
                     : 0;
 
             history.yearlyStressData.push({
@@ -724,23 +674,18 @@ class MonteCarloEngine {
                 percentExtra,
             });
 
-            // Track stress periods (when minimum withdrawal was enforced)
             if (minimumWasEnforced && !inStressPeriod) {
-                // Starting a new stress period
                 inStressPeriod = true;
                 currentStressStart = year;
                 currentStressExtraWithdrawn = extraWithdrawnBRL;
             } else if (minimumWasEnforced && inStressPeriod) {
-                // Continuing stress period
                 currentStressExtraWithdrawn += extraWithdrawnBRL;
             } else if (!minimumWasEnforced && inStressPeriod) {
-                // Ending stress period - market recovered
                 history.stressPeriods.push({
                     startYear: currentStressStart,
                     endYear: year - 1,
                     duration: year - currentStressStart,
-                    totalExtraWithdrawn:
-                        currentStressExtraWithdrawn,
+                    totalExtraWithdrawn: currentStressExtraWithdrawn,
                     recovered: true,
                     recoveryYear: year,
                 });
@@ -749,23 +694,29 @@ class MonteCarloEngine {
                 currentStressExtraWithdrawn = 0;
             }
 
-            // Check for failure (portfolio depleted)
-            if (portfolioUSD <= 0) {
-                // Close any open stress period
+            // --- Failure: only when the TOTAL portfolio is depleted ---
+            if (portfolioUSD < 0) {
+                // USD sleeve overdrawn; net any residual against the BRL
+                // sleeve (defensive — normally the BRL sleeve is already 0
+                // here because it is drawn first)
+                portfolioBRLFixed += portfolioUSD * currentFX;
+                portfolioUSD = 0;
+                bondPortionUSD = 0;
+                equityPortionUSD = 0;
+            }
+            if (portfolioUSD <= 0 && portfolioBRLFixed <= 0) {
                 if (inStressPeriod) {
                     history.stressPeriods.push({
                         startYear: currentStressStart,
                         endYear: year,
                         duration: year - currentStressStart + 1,
                         totalExtraWithdrawn:
-                            currentStressExtraWithdrawn +
-                            extraWithdrawnBRL,
+                            currentStressExtraWithdrawn + extraWithdrawnBRL,
                         recovered: false,
                         recoveryYear: null,
                     });
                     inStressPeriod = false;
                 }
-
                 history.failed = true;
                 history.failureYear = year;
                 history.failureType = "depletion";
@@ -777,20 +728,16 @@ class MonteCarloEngine {
                     minimumWasEnforced,
                 );
                 portfolioUSD = 0;
+                portfolioBRLFixed = 0;
             }
 
-            // Update BRL values (USD portfolio converted + BRL fixed income)
-            portfolioBRL =
-                portfolioUSD * currentFX + portfolioBRLFixed;
+            portfolioBRL = portfolioUSD * currentFX + portfolioBRLFixed;
 
-            // Store history
             history.portfolioUSD.push(portfolioUSD);
             history.portfolioBRL.push(portfolioBRL);
             history.withdrawalBRL.push(actualWithdrawalBRL);
-            history.withdrawalUSD.push(actualWithdrawalUSD);
-            history.recommendedWithdrawalBRL.push(
-                recommendedWithdrawalBRL,
-            );
+            history.withdrawalUSD.push(actualWithdrawalBRL / currentFX);
+            history.recommendedWithdrawalBRL.push(recommendedWithdrawalBRL);
             history.fxRate.push(currentFX);
             history.bondAllocation.push(bondAllocation * 100);
             history.rulesApplied.push(gkRuleApplied);
@@ -802,7 +749,6 @@ class MonteCarloEngine {
             history.regimeHistory.push(currentRegime);
         }
 
-        // Close any open stress period at end of simulation
         if (inStressPeriod && !history.failed) {
             history.stressPeriods.push({
                 startYear: currentStressStart,
@@ -1464,6 +1410,7 @@ class MonteCarloEngine {
             withdrawalMedians,
             inssIncomeMeans,
             minimumWithdrawalAdjusted,
+            meanCumulativeIpca,
             recommendedWithdrawalMeans,
             stressChartData,
             survivalRate,

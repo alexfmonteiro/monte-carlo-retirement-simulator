@@ -48,7 +48,7 @@ MonteCarloEngine.prototype.runSimulationEndowment = function() {
     let cumulativeIpcaFactor = 1.0;
 
     // Regime-switching state
-    let currentRegime = 'bull';
+    let currentRegime = this.initialRegime();
 
     for (let year = 1; year <= years; year++) {
         if (history.failed) {
@@ -75,10 +75,11 @@ MonteCarloEngine.prototype.runSimulationEndowment = function() {
         }
         const ipcaYear = this.generateIPCA(equityReturnYear);
         cumulativeIpcaFactor *= (1 + ipcaYear);
-        const bondReturnYear = this.generateBondReturn(ipcaYear);
-        currentFX = this.simulateCurrency(equityReturnYear, currentFX);
+        const bondReturnYear = this.generateBondReturn(ipcaYear); // kept: preserves RNG draw order
+        const usdBondReturnYear = this.generateUsdBondReturn();
+        currentFX = this.simulateCurrency(equityReturnYear, currentFX, year, cumulativeIpcaFactor);
 
-        const portfolioReturn = (1 - bondAllocation) * equityReturnYear + bondAllocation * bondReturnYear;
+        const portfolioReturn = (1 - bondAllocation) * equityReturnYear + bondAllocation * usdBondReturnYear;
         portfolioUSD *= (1 + portfolioReturn);
         if (portfolioUSD > peakPortfolioUSD) peakPortfolioUSD = portfolioUSD;
 

@@ -42,6 +42,10 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                     expectedIPCA: 4.5, // Expected IPCA %
                     ipcaVolatility: 2.0, // IPCA volatility %
                     realSpread: 5.0, // Real spread over IPCA for fixed income %
+                    // USD-side assumptions
+                    usdInflation: 2.0, // Expected US CPI % (PPP anchor for FX)
+                    usdBondReturn: 4.5, // USD bond sleeve nominal return %
+                    usdBondVolatility: 7.0, // USD bond sleeve volatility %
                     // Tax model
                     useTaxModel: true,
                     equityTaxRate: 15, // % tax on equity gains (Irish ETFs)
@@ -157,6 +161,21 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                     const masterSeed =
                         params.seed || Math.floor(Math.random() * 2147483647);
 
+                    // Success = survival target met AND (if a Die-With-Zero
+                    // target is set) the median final balance, deflated to
+                    // today's BRL, still meets the target.
+                    const meetsTarget = (results) => {
+                        if (results.survivalRate < targetRate) return false;
+                        if (params.targetEndBalance > 0) {
+                            const finalIpca =
+                                results.meanCumulativeIpca?.[params.years] ?? 1;
+                            const medianFinalReal =
+                                results.medianFinalPortfolio / finalIpca;
+                            return medianFinalReal >= params.targetEndBalance;
+                        }
+                        return true;
+                    };
+
                     let minSWR = 0.5;
                     let maxSWR = 15.0;
                     let bestSWR = minSWR;
@@ -199,7 +218,7 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                             totalSimulations,
                         });
 
-                        if (results.survivalRate >= targetRate) {
+                        if (meetsTarget(results)) {
                             // Can try higher SWR
                             bestSWR = midSWR;
                             bestResults = results;
@@ -252,7 +271,7 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                             totalSimulations,
                         });
 
-                        if (results.survivalRate >= targetRate) {
+                        if (meetsTarget(results)) {
                             bestSWR = midSWR;
                             bestResults = results;
                             minSWR = midSWR;
@@ -282,13 +301,13 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                         survivalRate: finalResults.survivalRate,
                         medianEndBalance: finalResults.medianFinalPortfolio,
                         monthlyWithdrawalBRL:
-                            (params.initialPortfolioUSD *
-                                params.initialFX *
+                            ((params.initialPortfolioUSD * params.initialFX +
+                                (params.initialPortfolioBRL || 0)) *
                                 (bestSWR / 100)) /
                             12,
                         annualWithdrawalBRL:
-                            params.initialPortfolioUSD *
-                            params.initialFX *
+                            (params.initialPortfolioUSD * params.initialFX +
+                                (params.initialPortfolioBRL || 0)) *
                             (bestSWR / 100),
                         confidenceInterval: [
                             Math.max(0.5, bestSWR - tolerance),
@@ -1597,6 +1616,57 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                                                     />
                                                 </>
                                             )}
+                                        </div>
+
+                                        {/* USD-side assumptions */}
+                                        <div className="mb-2 p-2 bg-midnight rounded border border-gray-800">
+                                            <Input
+                                                label="Inflação EUA"
+                                                value={params.usdInflation}
+                                                onChange={(v) =>
+                                                    updateParam(
+                                                        "usdInflation",
+                                                        v,
+                                                    )
+                                                }
+                                                unit="%"
+                                                min={0}
+                                                max={10}
+                                                step={0.1}
+                                                tooltip="Inflação anual esperada nos EUA (CPI). Usada como âncora de paridade do poder de compra (PPP) para o câmbio de longo prazo: o BRL tende a se desvalorizar aproximadamente pela diferença entre o IPCA e a inflação americana. Valor típico: 2%."
+                                            />
+                                            <Input
+                                                label="Retorno Bonds EUA"
+                                                value={params.usdBondReturn}
+                                                onChange={(v) =>
+                                                    updateParam(
+                                                        "usdBondReturn",
+                                                        v,
+                                                    )
+                                                }
+                                                unit="%"
+                                                min={0}
+                                                max={15}
+                                                step={0.1}
+                                                tooltip="Retorno nominal esperado da parcela de renda fixa em dólar (Treasuries/agregado). Esta parcela pertence à carteira em USD — diferente da renda fixa brasileira (IPCA + spread), que não tem exposição cambial."
+                                            />
+                                            <Input
+                                                label="Volatilidade Bonds EUA"
+                                                value={
+                                                    params.usdBondVolatility
+                                                }
+                                                onChange={(v) =>
+                                                    updateParam(
+                                                        "usdBondVolatility",
+                                                        v,
+                                                    )
+                                                }
+                                                unit="%"
+                                                min={0}
+                                                max={20}
+                                                step={0.5}
+                                                tooltip="Volatilidade anual da renda fixa em dólar. Títulos de prazo intermediário historicamente oscilam entre 5% e 8% ao ano."
+                                            />
                                         </div>
 
                                         {/* Tax Model */}
