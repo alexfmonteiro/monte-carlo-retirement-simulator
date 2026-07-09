@@ -22,7 +22,8 @@ class MonteCarloEngine {
 
     // Box-Muller transform for normal distribution
     randomNormal(mean = 0, std = 1) {
-        const u1 = this.random();
+        let u1 = this.random();
+        if (u1 < 1e-12) u1 = 1e-12; // Mulberry32 can emit exactly 0; log(0) = -Infinity
         const u2 = this.random();
         const z0 =
             Math.sqrt(-2.0 * Math.log(u1)) *
@@ -32,6 +33,10 @@ class MonteCarloEngine {
 
     // Generate random number from Student's T distribution (fatter tails)
     randomStudentT(mean, std, df) {
+        // Chi-squared is built by summing df squared normals, so df must be
+        // an integer; df <= 2 has undefined/infinite variance for the scaling.
+        df = Math.max(3, Math.round(df));
+
         // Generate T-distributed random variable
         // T = Z / sqrt(V/df) where Z ~ N(0,1) and V ~ Chi-squared(df)
         const z = this.randomNormal(0, 1);
@@ -82,6 +87,17 @@ class MonteCarloEngine {
         const ret = this.generateReturn(mean, vol);
 
         return { return: ret, newRegime };
+    }
+
+    // Draw the starting regime from the Markov chain's stationary
+    // distribution instead of always starting in 'bull' (which biases
+    // early-retirement sequence risk downward).
+    initialRegime() {
+        if (!this.params.useRegimeSwitching) return 'bull';
+        const pLeaveBull = 1 - this.params.bullToBullProb;
+        const pLeaveBear = 1 - this.params.bearToBearProb;
+        const pBull = pLeaveBear / (pLeaveBull + pLeaveBear);
+        return this.random() < pBull ? 'bull' : 'bear';
     }
 
     // Generate IPCA for the year (correlated with economic conditions)
@@ -379,7 +395,7 @@ class MonteCarloEngine {
         let consecutiveNegativeYears = 0;
 
         // Regime-switching state
-        let currentRegime = 'bull';
+        let currentRegime = this.initialRegime();
 
         // Stress period tracking (now: when minimum withdrawal was enforced)
         let inStressPeriod = false;
@@ -415,7 +431,7 @@ class MonteCarloEngine {
             inssIncomeBRL: [0],
             cumulativeIpcaFactor: [1.0],
             smileMultiplier: [1.0],
-            regimeHistory: ['bull'],
+            regimeHistory: [currentRegime],
         };
 
         for (let year = 1; year <= years; year++) {

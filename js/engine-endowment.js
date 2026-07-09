@@ -48,7 +48,7 @@ MonteCarloEngine.prototype.runSimulationEndowment = function() {
     let cumulativeIpcaFactor = 1.0;
 
     // Regime-switching state
-    let currentRegime = 'bull';
+    let currentRegime = this.initialRegime();
 
     for (let year = 1; year <= years; year++) {
         if (history.failed) {
