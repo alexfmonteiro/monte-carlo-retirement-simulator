@@ -53,7 +53,7 @@ A clássica "Regra dos 4%" foi desenvolvida para o mercado americano com condiç
 - **Risco cambial**: Patrimônio em USD, despesas em BRL
 - **Inflação brasileira**: IPCA historicamente mais volátil que CPI
 - **Tributação diferenciada**: ETFs irlandeses (15% sob Lei 14.754/2023) vs. Renda Fixa BR (tabela regressiva)
-- **Correlação inversa**: Real tende a desvalorizar quando bolsas caem (duplo impacto)
+- **Correlação inversa**: Real tende a desvalorizar quando bolsas caem (duplo impacto) — o câmbio simulado é correlacionado com o choque de RV efetivamente realizado no ano, não com um sorteio descartado
 
 ---
 
@@ -218,6 +218,17 @@ Baseada no trabalho de Harold Evensky, esta estratégia divide o portfólio em "
 
 **Por quê funciona**: O maior risco na aposentadoria é o "Sequence of Returns Risk" — uma sequência de retornos ruins no início pode devastar o portfólio. Mantendo 5+ anos em RF, você nunca precisa vender RV na baixa.
 
+### Denominação de Moeda: Saque, Sleeves e Ordem de Funding
+
+O simulador trata o patrimônio como duas "sleeves" (carteiras) com moedas e retornos distintos:
+
+- **Sleeve USD**: RV global + RF em dólar (T-Bonds/agregado) — sujeita a risco cambial. A parcela de RF desta sleeve rende os parâmetros de "Bonds EUA" (não IPCA + spread).
+- **Sleeve BRL**: Renda fixa brasileira (IPCA + spread real) — sem exposição cambial, funciona como hedge natural do gasto em reais.
+
+O **saque-alvo é denominado em BRL** (é o que o aposentado efetivamente gasta) e cresce pela inflação (IPCA simulado, ou `inflation` fixo quando o modelo IPCA está desligado) — nunca pela variação cambial. A conversão para USD só acontece na hora de dimensionar a venda da sleeve em dólar, usando o câmbio corrente daquele ano.
+
+**Ordem de funding**: cada saque é primeiro debitado da sleeve BRL (drena o hedge natural sem conversão cambial); o restante, se houver, vem da sleeve USD (bonds/RV conforme a estratégia de buckets/tenda). O portfólio só é considerado **falido quando as DUAS sleeves chegam a zero** — uma sleeve BRL com saldo positivo sustenta o plano mesmo que a sleeve USD se esgote.
+
 ### Rebalanceamento Inteligente por Saque
 
 ```
@@ -281,6 +292,8 @@ O otimizador usa **bissecção em duas fases**:
 ```
 
 > **Nota**: O otimizador reutiliza TODOS os parâmetros configurados (G-K, Buckets, Tenda, T-Student, correlação dinâmica, impostos). Ele apenas busca a `withdrawalRate` ideal — não altera nenhuma regra de simulação.
+
+> **Patrimônio Final Alvo (Die With Zero)**: Quando "Patrimônio Final Alvo" > 0, o critério de aceitação da bissecção passa a exigir também que o patrimônio final mediano (deflacionado a valores de hoje pelo IPCA acumulado simulado) atinja o alvo — não basta bater a probabilidade de sucesso. Isso reduz a taxa de saque ótima em relação ao Die With Zero puro (alvo R$ 0), já que parte do patrimônio precisa sobrar no fim do horizonte.
 
 ### Estratégia Yale Endowment
 
@@ -376,6 +389,8 @@ Para cada janela, aplica a mesma estratégia (G-K, buckets, impostos, smile, mí
 - Comparação direta com o resultado Monte Carlo
 
 > **Limitação**: Com 30 anos de dados pós-Real, horizontes acima de 30 anos terão apenas janelas parciais. Os dados não cobrem cenários extremos como hiperinflação pré-Real.
+>
+> **Limitação adicional**: As janelas rolantes se sobrepõem fortemente (janela 1996-2024 compartilha 29 dos 30 anos com a janela 1995-2024) — as taxas de sobrevivência entre janelas são ilustrativas de como a estratégia se comportaria em diferentes pontos de partida históricos, não probabilidades estatisticamente independentes.
 
 ### Correlação Dinâmica BRL/USD
 
@@ -387,7 +402,7 @@ Crise Moderada:    ρ = -0.60
 Crise Severa:      ρ = -0.80
 ```
 
-O simulador modela isso dinamicamente baseado na severidade da queda.
+O simulador modela isso dinamicamente baseado na severidade da queda. O choque cambial de cada ano é correlacionado com o *retorno de RV efetivamente sorteado naquele ano* (padronizado em z-score), não com um sorteio auxiliar descartado — garantindo que a correlação realizada na simulação bata com o parâmetro configurado. A reversão à média do câmbio usa uma âncora de paridade de poder de compra (PPP): o câmbio "justo" é o câmbio inicial corrigido pelo IPCA acumulado e deflacionado pela inflação americana acumulada (`usdInflation`), em vez de reverter para sempre ao câmbio nominal inicial.
 
 ---
 
@@ -418,9 +433,11 @@ O simulador modela isso dinamicamente baseado na severidade da queda.
 |-----------|-----------|---------|---------------|
 | **Retorno RV** | Retorno nominal esperado em USD (RV global) | 7.0% | S&P 500: ~10% nominal, MSCI World: ~8.9% |
 | **Volatilidade RV** | Desvio padrão anual | 18.0% | S&P 500: ~19%, MSCI ACWI: ~15.7% |
-| **Retorno RF** | Retorno da renda fixa (se não usar modelo IPCA) | 4.0% | NTN-B real: ~4-5% |
-| **Volatilidade RF** | Desvio padrão RF | 6.0% | NTN-B: ~5-12% conforme prazo |
+| **Retorno RF** | Retorno da renda fixa **da sleeve BRL** (se não usar modelo IPCA) | 4.0% | NTN-B real: ~4-5% |
+| **Volatilidade RF** | Desvio padrão RF (sleeve BRL) | 6.0% | NTN-B: ~5-12% conforme prazo |
 | **Inflação (IPCA)** | Inflação anual esperada | 4.5% | IPCA 2004-2024: ~5.7% média |
+
+> **Nota**: a parcela de renda fixa **dentro da sleeve USD** (ver "Denominação de Moeda") usa parâmetros próprios — "Retorno Bonds EUA" e "Volatilidade Bonds EUA", no painel Avançado — em vez do Retorno RF acima, que se aplica apenas à sleeve BRL.
 
 ### Horizonte e Simulação
 
@@ -511,6 +528,9 @@ A implementação é um **glide path linear** — a alocação de RF decresce li
 | **IPCA Esperado** | IPCA médio esperado | 4.5% | IPCA 2004-2024: ~5.7% média |
 | **Volatilidade IPCA** | Desvio padrão do IPCA | 2.0% | Histórico: ~1.8-2.0% |
 | **Spread Real** | Juro real sobre IPCA (NTN-B) | 5.0% | NTN-B histórico: ~3.6-5.0% média |
+| **Inflação EUA** | CPI americano esperado — âncora PPP para o câmbio de longo prazo | 2.0% | Meta Fed: ~2% |
+| **Retorno Bonds EUA** | Retorno nominal da RF **dentro da sleeve USD** (Treasuries/agregado) | 4.5% | - |
+| **Volatilidade Bonds EUA** | Volatilidade anual da RF em dólar | 7.0% | Títulos de prazo intermediário: ~5-8% |
 | **Modelo Tributário** | Descontar IR dos saques | Sim | - |
 | **IR RV** | Alíquota sobre ganhos de RV | 15% | Lei 14.754/2023 (investimentos offshore) |
 | **IR RF** | Alíquota sobre rendimentos RF | 15% | Tabela regressiva IR (>720 dias) |
@@ -755,9 +775,9 @@ Z₂_correlacionado = ρ × Z₁ + √(1-ρ²) × Z₂
 
 Modelo com:
 
-1. **Correlação com equity**: Quando RV cai, USD sobe (Cholesky)
-2. **Mean reversion**: Câmbio tende a voltar à média de longo prazo
-3. **Stress multiplier**: Volatilidade aumenta 1.3x em crises
+1. **Correlação com equity realizada**: O choque cambial é correlacionado com o z-score do retorno de RV efetivamente sorteado no ano (não com um segundo sorteio descartado) — a correlação realizada bate com o parâmetro configurado
+2. **Mean reversion com âncora PPP**: Câmbio reverte a um valor "justo" = câmbio inicial × IPCA acumulado ÷ inflação americana acumulada (`usdInflation`), em vez do câmbio nominal inicial fixo
+3. **Stress multiplier**: Volatilidade aumenta 1.3x em crises (retorno de RV negativo)
 
 ### Cálculo de Impostos
 

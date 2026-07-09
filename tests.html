@@ -1810,6 +1810,61 @@
         });
 
         // ============================================
+        // MODEL CORRECTNESS FIX REGRESSION SUITES
+        // ============================================
+
+        const fixParams = getDefaultParams();
+
+        tf.describe('FX-Equity Realized Correlation', () => {
+            tf.it('realized correlation matches baseCorrelation sign and magnitude', () => {
+                const engine = new MonteCarloEngine({ ...fixParams, seed: 9, useDynamicCorrelation: false, baseCorrelation: -0.4, useStudentT: false });
+                const eq = [], fx = [];
+                for (let i = 0; i < 10000; i++) {
+                    const r = engine.randomNormal(0.08, 0.18);
+                    const f = engine.simulateCurrency(r, 5.8, 1, 1.0);
+                    eq.push(r); fx.push(f / 5.8 - 1);
+                }
+                const mean = a => a.reduce((x, y) => x + y, 0) / a.length;
+                const me = mean(eq), mf = mean(fx);
+                let c = 0, ve = 0, vf = 0;
+                for (let i = 0; i < eq.length; i++) {
+                    c += (eq[i] - me) * (fx[i] - mf);
+                    ve += (eq[i] - me) ** 2; vf += (fx[i] - mf) ** 2;
+                }
+                const corr = c / Math.sqrt(ve * vf);
+                assertInRange(corr, -0.55, -0.25, `realized equity-FX corr was ${corr.toFixed(3)}`);
+            });
+        });
+
+        tf.describe('BRL Sleeve Integration', () => {
+            tf.it('BRL-only portfolio does not fail immediately', () => {
+                const engine = new MonteCarloEngine({ ...fixParams, seed: 7, initialPortfolioUSD: 0, initialPortfolioBRL: 5000000, useTaxModel: false });
+                const h = engine.runSimulation();
+                assert(!h.failed || h.failureYear > 10, `BRL-only portfolio failed at year ${h.failureYear}`);
+            });
+            tf.it('failure requires BOTH sleeves depleted', () => {
+                // Absurd withdrawal rate: must eventually fail, and when it
+                // does, both sleeves must be zero
+                const engine = new MonteCarloEngine({ ...fixParams, seed: 3, initialPortfolioUSD: 100000, initialPortfolioBRL: 100000, withdrawalRate: 25, useMinimumWithdrawal: false });
+                const h = engine.runSimulation();
+                assert(h.failed, 'expected failure at 25% SWR');
+                const fy = h.failureYear;
+                assertEqual(h.portfolioBRL[fy], 0, 'total BRL portfolio must be 0 at failure');
+            });
+        });
+
+        tf.describe('BRL Spending Denomination', () => {
+            tf.it('withdrawal grows at exactly (1+inflation) in BRL when GK and IPCA model are off', () => {
+                const engine = new MonteCarloEngine({ ...fixParams, seed: 11, useGuytonKlinger: false, useIPCAModel: false, inflation: 5, useTaxModel: false, useMinimumWithdrawal: false, useSpendingSmile: false, useBucketStrategy: false, useStudentT: false });
+                const h = engine.runSimulation();
+                for (let y = 2; y <= 5; y++) {
+                    const g = h.withdrawalBRL[y] / h.withdrawalBRL[y - 1];
+                    assertAlmostEqual(g, 1.05, 0.001, `year ${y}: BRL withdrawal growth was ${g}`);
+                }
+            });
+        });
+
+        // ============================================
         // RUN TESTS
         // ============================================
 
