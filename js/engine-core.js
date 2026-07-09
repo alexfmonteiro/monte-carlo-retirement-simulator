@@ -202,35 +202,38 @@ class MonteCarloEngine {
         return equityTax + bondTax;
     }
 
-    // Generate correlated random returns
-    generateCorrelatedReturns(correlation) {
-        const z1 = this.randomNormal();
-        const z2 = this.randomNormal();
-        const correlatedZ2 =
-            correlation * z1 +
-            Math.sqrt(1 - correlation * correlation) * z2;
-        return [z1, correlatedZ2];
-    }
+    // Simulate BRL/USD dynamics.
+    // - The FX shock is correlated with the ACTUAL equity shock of the year
+    //   (z-score of the realized equity return), so the realized equity-FX
+    //   correlation matches getDynamicCorrelation(). The previous version
+    //   correlated against a fresh, discarded normal — realized corr was ~0.
+    // - Mean reversion targets a PPP-consistent fair value: initial FX
+    //   inflated by accumulated IPCA and deflated by accumulated US
+    //   inflation, instead of the nominal initial FX forever.
+    simulateCurrency(equityReturn, baseFX, year, cumIpcaFactor, volatilityFX = 0.15) {
+        const correlation = this.getDynamicCorrelation(equityReturn);
+        const equityMean = this.params.equityReturn / 100;
+        const equityVol = this.params.equityVolatility / 100;
+        const zEquity = equityVol > 0
+            ? Math.max(-4, Math.min(4, (equityReturn - equityMean) / equityVol))
+            : 0;
+        const z = this.randomNormal();
+        const fxShock =
+            correlation * zEquity +
+            Math.sqrt(1 - correlation * correlation) * z;
 
-    // Simulate currency dynamics with dynamic correlation
-    simulateCurrency(equityReturn, baseFX, volatilityFX = 0.15) {
-        // Get dynamic correlation based on market stress
-        const correlation =
-            this.getDynamicCorrelation(equityReturn);
-        const [_, fxShock] =
-            this.generateCorrelatedReturns(correlation);
-
-        // Mean reversion component
-        const meanFX = this.params.initialFX;
+        const usdInflation = (this.params.usdInflation ?? 2.0) / 100;
+        const fairFX =
+            this.params.initialFX * (cumIpcaFactor ?? 1) /
+            Math.pow(1 + usdInflation, year ?? 1);
         const reversionSpeed = 0.1;
-        const drift = (reversionSpeed * (meanFX - baseFX)) / meanFX;
+        const drift = (reversionSpeed * (fairFX - baseFX)) / baseFX;
 
-        // Stronger FX move when equity is negative
+        // Stronger FX move when equity is negative (flight to USD)
         const stressMultiplier = equityReturn < 0 ? 1.3 : 1.0;
-        const fxReturn =
-            drift + fxShock * volatilityFX * stressMultiplier;
+        const fxReturn = drift + fxShock * volatilityFX * stressMultiplier;
 
-        return baseFX * (1 + fxReturn);
+        return Math.max(baseFX * 0.5, baseFX * (1 + fxReturn));
     }
 
     // Spending Smile multiplier: retirees spend more early (travel/leisure),
@@ -509,6 +512,8 @@ class MonteCarloEngine {
             currentFX = this.simulateCurrency(
                 equityReturnYear,
                 currentFX,
+                year,
+                cumulativeIpcaFactor,
             );
 
             // Calculate gain ratio for tax purposes (estimate based on years invested)

@@ -76,7 +76,7 @@ MonteCarloEngine.prototype.runSimulationEndowment = function() {
         const ipcaYear = this.generateIPCA(equityReturnYear);
         cumulativeIpcaFactor *= (1 + ipcaYear);
         const bondReturnYear = this.generateBondReturn(ipcaYear);
-        currentFX = this.simulateCurrency(equityReturnYear, currentFX);
+        currentFX = this.simulateCurrency(equityReturnYear, currentFX, year, cumulativeIpcaFactor);
 
         const portfolioReturn = (1 - bondAllocation) * equityReturnYear + bondAllocation * bondReturnYear;
         portfolioUSD *= (1 + portfolioReturn);

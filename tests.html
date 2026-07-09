@@ -391,7 +391,10 @@
                 const engine = new MonteCarloEngine(getDefaultParams());
                 const samples = [];
                 for (let i = 0; i < 5000; i++) {
-                    samples.push(engine.generateCorrelatedReturns(0));
+                    const z1 = engine.randomNormal();
+                    const z2 = engine.randomNormal();
+                    const corrZ2 = 0 * z1 + Math.sqrt(1 - 0 * 0) * z2;
+                    samples.push([z1, corrZ2]);
                 }
 
                 // Calculate sample correlation
@@ -418,7 +421,10 @@
                 const targetCorr = 0.7;
                 const samples = [];
                 for (let i = 0; i < 5000; i++) {
-                    samples.push(engine.generateCorrelatedReturns(targetCorr));
+                    const z1 = engine.randomNormal();
+                    const z2 = engine.randomNormal();
+                    const corrZ2 = targetCorr * z1 + Math.sqrt(1 - targetCorr * targetCorr) * z2;
+                    samples.push([z1, corrZ2]);
                 }
 
                 const z1s = samples.map(s => s[0]);
@@ -445,7 +451,10 @@
                 const targetCorr = -0.4;
                 const samples = [];
                 for (let i = 0; i < 5000; i++) {
-                    samples.push(engine.generateCorrelatedReturns(targetCorr));
+                    const z1 = engine.randomNormal();
+                    const z2 = engine.randomNormal();
+                    const corrZ2 = targetCorr * z1 + Math.sqrt(1 - targetCorr * targetCorr) * z2;
+                    samples.push([z1, corrZ2]);
                 }
 
                 const z1s = samples.map(s => s[0]);
@@ -921,7 +930,7 @@
                 let fxAbove = 7.0;
                 let driftAbove = 0;
                 for (let i = 0; i < 1000; i++) {
-                    const newFX = engine.simulateCurrency(0.07, fxAbove);
+                    const newFX = engine.simulateCurrency(0.07, fxAbove, 1, 1.0);
                     driftAbove += (newFX - fxAbove);
                 }
 
@@ -929,7 +938,7 @@
                 let fxBelow = 4.0;
                 let driftBelow = 0;
                 for (let i = 0; i < 1000; i++) {
-                    const newFX = engine.simulateCurrency(0.07, fxBelow);
+                    const newFX = engine.simulateCurrency(0.07, fxBelow, 1, 1.0);
                     driftBelow += (newFX - fxBelow);
                 }
 
@@ -952,14 +961,14 @@
                 // Collect FX changes during positive returns
                 const positiveChanges = [];
                 for (let i = 0; i < 1000; i++) {
-                    const newFX = engine.simulateCurrency(0.10, 5.5);  // +10% equity
+                    const newFX = engine.simulateCurrency(0.10, 5.5, 1, 1.0);  // +10% equity
                     positiveChanges.push(Math.abs(newFX - 5.5));
                 }
 
                 // Collect FX changes during negative returns
                 const negativeChanges = [];
                 for (let i = 0; i < 1000; i++) {
-                    const newFX = engine.simulateCurrency(-0.10, 5.5);  // -10% equity
+                    const newFX = engine.simulateCurrency(-0.10, 5.5, 1, 1.0);  // -10% equity
                     negativeChanges.push(Math.abs(newFX - 5.5));
                 }
 
@@ -1002,12 +1011,18 @@
                 const engine = new MonteCarloEngine(getDefaultParams());
 
                 // Test with correlation = 0.99
-                const result1 = engine.generateCorrelatedReturns(0.99);
+                const corr1 = 0.99;
+                const z1a = engine.randomNormal();
+                const z1b = engine.randomNormal();
+                const result1 = [z1a, corr1 * z1a + Math.sqrt(1 - corr1 * corr1) * z1b];
                 assert(result1.length === 2, 'Should return two values');
                 assert(isFinite(result1[0]) && isFinite(result1[1]), 'Values should be finite');
 
                 // Test with correlation = -0.99
-                const result2 = engine.generateCorrelatedReturns(-0.99);
+                const corr2 = -0.99;
+                const z2a = engine.randomNormal();
+                const z2b = engine.randomNormal();
+                const result2 = [z2a, corr2 * z2a + Math.sqrt(1 - corr2 * corr2) * z2b];
                 assert(result2.length === 2, 'Should return two values');
                 assert(isFinite(result2[0]) && isFinite(result2[1]), 'Values should be finite');
             });
