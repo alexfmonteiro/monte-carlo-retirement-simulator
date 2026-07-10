@@ -6,7 +6,8 @@ const fs = require('fs');
 const path = require('path');
 
 const files = ['rng.js', 'mortality-data.js', 'historical-data.js',
-               'engine-core.js', 'engine-historical.js', 'engine-endowment.js'];
+               'engine-core.js', 'engine-projection.js', 'engine-historical.js',
+               'engine-endowment.js'];
 const src = files
     .map(f => fs.readFileSync(path.join(__dirname, '..', 'js', f), 'utf8'))
     .join('\n;\n');
@@ -76,5 +77,50 @@ const endow = new MonteCarloEngine({
 const eh = endow.runSimulationEndowment();
 check('endowment history all finite', eh.portfolioUSD.every(Number.isFinite));
 
-console.log(failed ? 'SMOKE FAILED' : 'SMOKE PASSED');
-process.exit(failed ? 1 : 0);
+// 6) Accumulation phase: two-phase run produces the expected history shape
+// and no withdrawals before retirement.
+const accYears = 5;
+const accEngine = new MonteCarloEngine({
+    ...DEFAULTS,
+    useAccumulation: true,
+    accumulationYears: accYears,
+    monthlyContributionBRL: 10000,
+    contributionSplitUSD: 80,
+    spendingMode: 'rate',
+});
+const accHist = accEngine.runSimulation();
+check('accumulation history length = accYears + years + 1',
+    accHist.portfolioBRL.length === accYears + DEFAULTS.years + 1);
+check('accumulation years have zero withdrawal',
+    accHist.withdrawalBRL.slice(1, accYears + 1).every((w) => w === 0));
+check('accumulation history all finite',
+    accHist.portfolioBRL.every(Number.isFinite) && accHist.portfolioUSD.every(Number.isFinite));
+
+// 7) Retirement-age sweep: shape + NaN check over a small sweep
+(async () => {
+    const sweepEngine = new MonteCarloEngine({
+        ...DEFAULTS,
+        currentAge: 55,
+        targetSpendingBRL: 150000,
+        monthlyContributionBRL: 10000,
+        contributionSplitUSD: 80,
+    });
+    const sweep = await sweepEngine.runRetirementAgeSweep({
+        maxExtraYears: 2,
+        probeIterations: 100,
+        confirmIterations: 150,
+    });
+    check('sweep returns byAge with 3 entries', sweep.byAge.length === 3);
+    check('sweep entries all finite', sweep.byAge.every((row) =>
+        Number.isFinite(row.age) &&
+        Number.isFinite(row.portfolioRealMedian) &&
+        Number.isFinite(row.swrConservative) &&
+        Number.isFinite(row.swrAdjusted) &&
+        Number.isFinite(row.monthlyConservative) &&
+        Number.isFinite(row.monthlyAdjusted) &&
+        Number.isFinite(row.survivalAtTarget) &&
+        Number.isFinite(row.adjustedAtTarget)));
+
+    console.log(failed ? 'SMOKE FAILED' : 'SMOKE PASSED');
+    process.exit(failed ? 1 : 0);
+})();
