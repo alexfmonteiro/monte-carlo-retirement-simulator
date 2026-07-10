@@ -290,13 +290,13 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
 
             // Toggle component
             const Toggle = ({ label, checked, onChange }) => (
-                <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center justify-between gap-3 mb-3">
                     <span className="text-xs text-gray-400 font-medium uppercase tracking-wide">
                         {label}
                     </span>
                     <button
                         onClick={() => onChange(!checked)}
-                        className={`w-11 h-6 rounded-full transition-colors relative ${
+                        className={`w-11 h-6 flex-shrink-0 rounded-full transition-colors relative ${
                             checked ? "bg-accent" : "bg-gray-700"
                         }`}
                     >
