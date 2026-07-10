@@ -5,9 +5,9 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
         // ============================================
         const App = () => {
             const [params, setParams] = useState({
-                initialPortfolioUSD: 1000000,
+                initialPortfolioUSD: 800000,
                 initialPortfolioBRL: 0,
-                initialFX: 5.80,
+                initialFX: 5.15,
                 years: 30,
                 iterations: 5000,
                 sidebarMode: 'simple',
@@ -15,22 +15,25 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                 endowmentTargetRate: 4.0,
                 endowmentAlpha: 0.70,
                 useEndowmentCAPE: false,
-                initialCAPE: 22,
-                medianCAPE: 20,
+                initialCAPE: 41, // Shiller CAPE jul/2026 ≈ 41x
+                medianCAPE: 25, // alvo de reversão: entre mediana histórica (~16x) e média pós-1990 (~28x)
                 capeVolatility: 4.0,
                 capeMeanReversionSpeed: 0.15,
                 endowmentDrawdownSensitivity: 0.5,
                 endowmentGuardrailCap: 0.15,
-                // Market
-                equityReturn: 8.0,
+                // Market (aligned with app-main defaults)
+                equityReturn: 6.5,
                 equityVolatility: 18.0,
-                bondReturn: 5.0,
-                bondVolatility: 2.0,
+                bondReturn: 5.5,
+                bondVolatility: 3.0,
                 targetBondPercent: 40,
                 tentInitialBondPercent: 40,
-                expectedIPCA: 4.5,
+                expectedIPCA: 4.0,
                 ipcaVolatility: 2.0,
-                realSpread: 5.0,
+                realSpread: 5.5,
+                usdInflation: 2.3,
+                usdBondReturn: 4.7,
+                usdBondVolatility: 6.0,
                 // GK comparison
                 useGuytonKlinger: true,
                 preservationThreshold: 0.20,
@@ -39,16 +42,16 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                 applyInflationRule: true,
                 // Advanced modeling
                 useStudentT: true,
-                degreesOfFreedom: 5,
+                degreesOfFreedom: 8,
                 useDynamicCorrelation: true,
-                baseCorrelation: -0.4,
+                baseCorrelation: -0.35,
                 stressCorrelationMultiplier: 2.0,
                 useIPCAModel: true,
                 useTaxModel: true,
                 equityTaxRate: 15,
                 fixedIncomeTaxRate: 15,
                 // Engine compat
-                inflation: 4.5,
+                inflation: 4.0,
                 withdrawalRate: 4.0,
                 tentDuration: 30,
                 useBucketStrategy: false,
@@ -56,9 +59,9 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                 useMinimumWithdrawal: false,
                 minimumWithdrawalBRL: 120000,
                 useINSS: false,
-                currentAge: 60,
+                currentAge: 42,
                 inssStartAge: 65,
-                inssMonthlyBRL: 3000,
+                inssMonthlyBRL: 4000,
                 useSequenceConstraint: false,
                 maxNegativeSequence: 10,
                 seed: null,
@@ -148,8 +151,8 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                                     <Toggle label="Ajuste por CAPE" checked={params.useEndowmentCAPE} onChange={(v) => updateParam('useEndowmentCAPE', v)} />
                                     {params.useEndowmentCAPE && (
                                         <>
-                                            <Input label="CAPE Inicial" value={params.initialCAPE} onChange={(v) => updateParam('initialCAPE', v)} unit="x" min={7} max={50} step={1} tooltip="Valor inicial do CAPE (P/L ajustado 10a). Histórico S&P500 ≈ 22x." />
-                                            <Input label="CAPE Mediano (longo prazo)" value={params.medianCAPE} onChange={(v) => updateParam('medianCAPE', v)} unit="x" min={7} max={40} step={1} tooltip="CAPE de reversão à média no longo prazo." />
+                                            <Input label="CAPE Inicial" value={params.initialCAPE} onChange={(v) => updateParam('initialCAPE', v)} unit="x" min={7} max={50} step={1} tooltip="Valor inicial do CAPE (P/L ajustado 10a). Em jul/2026 o CAPE do S&P 500 está em ~41x — perto das máximas históricas (pico dot-com ≈ 44x). Mediana histórica completa ≈ 16x." />
+                                            <Input label="CAPE Mediano (longo prazo)" value={params.medianCAPE} onChange={(v) => updateParam('medianCAPE', v)} unit="x" min={7} max={40} step={1} tooltip="CAPE de reversão à média no longo prazo. A mediana histórica completa é ~16x, mas a média pós-1990 é ~28x — 25x é um alvo intermediário; usar 16x implica retornos futuros muito baixos." />
                                             <Input label="Volatilidade do CAPE" value={params.capeVolatility} onChange={(v) => updateParam('capeVolatility', v)} unit="" min={1} max={10} step={0.5} tooltip="Desvio padrão anual do processo CAPE (Ornstein-Uhlenbeck)." />
                                             <Input label="Velocidade de Reversão" value={params.capeMeanReversionSpeed} onChange={(v) => updateParam('capeMeanReversionSpeed', v)} unit="" min={0.05} max={0.5} step={0.05} tooltip="Velocidade com que o CAPE reverte à mediana. 0.15 = lenta." />
                                             <Input label="Sensibilidade ao Drawdown" value={params.endowmentDrawdownSensitivity} onChange={(v) => updateParam('endowmentDrawdownSensitivity', v)} unit="" min={0} max={1} step={0.1} tooltip="Quanto o drawdown reduz a taxa de retirada. 0.5 = drawdown 50% reduz taxa em 25%." />

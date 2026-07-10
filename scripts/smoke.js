@@ -16,26 +16,26 @@ const { MonteCarloEngine, HISTORICAL_DATA } = load();
 // Mirrors the useState defaults in js/app-main.js (plus the new params
 // added by this plan — harmless before they are used).
 const DEFAULTS = {
-    initialPortfolioUSD: 1000000, initialPortfolioBRL: 0, initialFX: 5.8,
-    withdrawalRate: 4.0, equityReturn: 8.0, equityVolatility: 18.0,
-    bondReturn: 5.0, bondVolatility: 2.0, inflation: 4.5, years: 50,
+    initialPortfolioUSD: 800000, initialPortfolioBRL: 1030000, initialFX: 5.15,
+    withdrawalRate: 3.5, equityReturn: 6.5, equityVolatility: 18.0,
+    bondReturn: 5.5, bondVolatility: 3.0, inflation: 4.0, years: 58,
     tentInitialBondPercent: 40, tentDuration: 5, targetBondPercent: 40,
     useGuytonKlinger: true, preservationThreshold: 0.2, prosperityThreshold: 0.2,
     adjustmentPercent: 0.1, applyInflationRule: true,
-    minimumWithdrawalBRL: 120000, useMinimumWithdrawal: false,
-    useINSS: false, currentAge: 60, inssStartAge: 65, inssMonthlyBRL: 3000,
+    minimumWithdrawalBRL: 120000, useMinimumWithdrawal: true,
+    useINSS: true, currentAge: 42, inssStartAge: 65, inssMonthlyBRL: 4000,
     bucketYears: 5, useBucketStrategy: true,
-    useStudentT: true, degreesOfFreedom: 5,
-    useDynamicCorrelation: true, baseCorrelation: -0.4, stressCorrelationMultiplier: 2.0,
-    useIPCAModel: true, expectedIPCA: 4.5, ipcaVolatility: 2.0, realSpread: 5.0,
+    useStudentT: true, degreesOfFreedom: 8,
+    useDynamicCorrelation: true, baseCorrelation: -0.35, stressCorrelationMultiplier: 2.0,
+    useIPCAModel: true, expectedIPCA: 4.0, ipcaVolatility: 2.0, realSpread: 5.5,
     useTaxModel: true, equityTaxRate: 15, fixedIncomeTaxRate: 15,
     useSpendingSmile: false, smileEarlyMultiplier: 1.2, smileMidMultiplier: 0.85, smileLateMultiplier: 1.1,
-    useRegimeSwitching: false, bullEquityMean: 12, bullEquityVol: 12,
+    useRegimeSwitching: false, bullEquityMean: 9.5, bullEquityVol: 12,
     bearEquityMean: -5, bearEquityVol: 25, bullToBullProb: 0.875, bearToBearProb: 0.5,
     useSequenceConstraint: false, maxNegativeSequence: 10,
-    useMortalityAdjustment: false, mortalityGender: 'male',
+    useMortalityAdjustment: true, mortalityGender: 'male',
     seed: 42,
-    usdInflation: 2.0, usdBondReturn: 4.5, usdBondVolatility: 7.0,
+    usdInflation: 2.3, usdBondReturn: 4.7, usdBondVolatility: 6.0,
 };
 
 let failed = false;
