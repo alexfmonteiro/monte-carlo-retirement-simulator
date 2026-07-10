@@ -4,16 +4,16 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
             const App = () => {
                 // Parameters state
                 const [params, setParams] = useState({
-                    initialPortfolioUSD: 1000000,
-                    initialPortfolioBRL: 0, // Portfolio in BRL (Brazilian fixed income)
-                    initialFX: 5.8,
-                    withdrawalRate: 4.0,
-                    equityReturn: 8.0,
-                    equityVolatility: 18.0,
-                    bondReturn: 5.0,
-                    bondVolatility: 2.0,
-                    inflation: 4.5,
-                    years: 50,
+                    initialPortfolioUSD: 800000,
+                    initialPortfolioBRL: 1030000, // Portfolio in BRL (Brazilian fixed income) — ~US$200k @ 5.15
+                    initialFX: 5.15, // USD/BRL spot jul/2026; Focus 2026-28: 5.15-5.30
+                    withdrawalRate: 3.5, // starting point for 55+ year horizons
+                    equityReturn: 6.5, // CMAs 2026: 5-6% (10a); histórico ~10%; CAPE ~41
+                    equityVolatility: 18.0, // histórico anual S&P 500 ~19.7%
+                    bondReturn: 5.5, // retorno REAL RF BRL (fallback qdo modelo IPCA off)
+                    bondVolatility: 3.0,
+                    inflation: 4.0, // fallback qdo modelo IPCA off
+                    years: 58, // idade 42 → 100
                     iterations: 20000,
                     tentInitialBondPercent: 40,
                     tentDuration: 5,
@@ -23,29 +23,29 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                     prosperityThreshold: 0.2,
                     adjustmentPercent: 0.1,
                     applyInflationRule: true,
-                    minimumWithdrawalBRL: 120000,
-                    useMinimumWithdrawal: false,
-                    useINSS: false,
-                    currentAge: 60,
+                    minimumWithdrawalBRL: 120000, // piso: R$ 10k/mês em BRL de hoje
+                    useMinimumWithdrawal: true,
+                    useINSS: true,
+                    currentAge: 42,
                     inssStartAge: 65,
-                    inssMonthlyBRL: 3000,
+                    inssMonthlyBRL: 4000,
                     bucketYears: 5,
                     useBucketStrategy: true,
                     // Advanced modeling parameters
                     useStudentT: true,
-                    degreesOfFreedom: 5, // Lower = fatter tails (5-7 typical for markets)
+                    degreesOfFreedom: 8, // annual returns are closer to normal than daily (df 3-5); 8-15 typical for annual
                     useDynamicCorrelation: true,
-                    baseCorrelation: -0.4,
+                    baseCorrelation: -0.35, // realized corr(S&P, ΔFX) 1996-2024 = -0.33
                     stressCorrelationMultiplier: 2.0, // Correlation becomes more negative in stress
                     // IPCA + Real Rate model
                     useIPCAModel: true,
-                    expectedIPCA: 4.5, // Expected IPCA %
-                    ipcaVolatility: 2.0, // IPCA volatility %
-                    realSpread: 5.0, // Real spread over IPCA for fixed income %
+                    expectedIPCA: 4.0, // Focus jul/2026: 5.3% (2026) → 3.5% (2029, longo prazo); meta 3%
+                    ipcaVolatility: 2.0, // desvio-padrão IPCA anual 2005-2024 ≈ 1.9pp
+                    realSpread: 5.5, // NTN-B longas: IPCA+7.3-8.3% (2026); juro real neutro BCB 4.5-5.5%
                     // USD-side assumptions
-                    usdInflation: 2.0, // Expected US CPI % (PPP anchor for FX)
-                    usdBondReturn: 4.5, // USD bond sleeve nominal return %
-                    usdBondVolatility: 7.0, // USD bond sleeve volatility %
+                    usdInflation: 2.3, // breakeven 10a ~2.24% (jul/2026); meta Fed 2%
+                    usdBondReturn: 4.7, // Treasury 10a ~4.6% (jul/2026); consenso CMA 4.7%
+                    usdBondVolatility: 6.0, // agregado/intermediário ~5-6% a.a.
                     // Tax model
                     useTaxModel: true,
                     equityTaxRate: 15, // % tax on equity gains (Irish ETFs)
@@ -57,7 +57,7 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                     smileLateMultiplier: 1.10,  // Late retirement: healthcare
                     // Regime-switching return model (2-state Markov)
                     useRegimeSwitching: false,
-                    bullEquityMean: 12.0,
+                    bullEquityMean: 9.5, // blend estacionário (80% bull) ≈ 6.6%, consistente com equityReturn
                     bullEquityVol: 12.0,
                     bearEquityMean: -5.0,
                     bearEquityVol: 25.0,
@@ -67,7 +67,7 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                     useSequenceConstraint: false, // OFF by default - pure IID Monte Carlo
                     maxNegativeSequence: 10, // Max consecutive years of negative returns (only if constraint enabled)
                     // Mortality adjustment (IBGE)
-                    useMortalityAdjustment: false,
+                    useMortalityAdjustment: true,
                     mortalityGender: 'male', // 'male' | 'female' | 'couple'
                     // Reproducibility
                     seed: null, // null = random seed each run, number = deterministic
@@ -764,7 +764,7 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                                     Portfólio Inicial
                                 </h2>
                                 <DualCurrencyInput
-                                    label="Patrimônio Total"
+                                    label="Patrimônio em USD"
                                     valueUSD={params.initialPortfolioUSD}
                                     onChangeUSD={(v) =>
                                         updateParam("initialPortfolioUSD", v)
@@ -772,7 +772,18 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                                     fx={params.initialFX}
                                     minUSD={10000}
                                     stepUSD={50000}
-                                    tooltip="Valor total do seu portfólio de investimentos. Pode ser inserido em USD ou BRL - o outro campo será calculado automaticamente usando o câmbio. A divisão entre Renda Variável e Renda Fixa será definida pelo '% RF Inicial' na seção Estratégia Tenda abaixo."
+                                    tooltip="Parcela do patrimônio em ativos dolarizados (ETFs internacionais: RV + bonds EUA), sujeita a variação cambial. Pode ser inserido em USD ou BRL - o outro campo será calculado automaticamente usando o câmbio. A divisão entre Renda Variável e Renda Fixa será definida pelo '% RF Inicial' na seção Estratégia Tenda abaixo."
+                                />
+                                <BRLInputWithUSD
+                                    label="Patrimônio em BRL (Renda Fixa)"
+                                    valueBRL={params.initialPortfolioBRL}
+                                    onChange={(v) =>
+                                        updateParam("initialPortfolioBRL", v)
+                                    }
+                                    fx={params.initialFX}
+                                    min={0}
+                                    step={50000}
+                                    tooltip="Parcela do patrimônio em renda fixa brasileira (Tesouro IPCA+, CDBs), SEM exposição cambial. Rende IPCA + spread real. Os saques usam esta parcela primeiro (hedge natural: paga despesas em BRL sem converter dólares). Zero se todo o patrimônio está dolarizado."
                                 />
                                 <Input
                                     label="Câmbio Inicial"
@@ -784,7 +795,7 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                                     min={3}
                                     max={10}
                                     step={0.1}
-                                    tooltip="Taxa de câmbio atual (quantos reais por dólar). Este valor serve como ponto de partida e também como 'âncora' para o modelo de reversão à média do câmbio. Durante a simulação, o câmbio varia de forma estocástica mas tende a retornar a este valor no longo prazo."
+                                    tooltip="Taxa de câmbio atual (quantos reais por dólar) — ~5.15 em jul/2026. Este valor é o ponto de partida da âncora de paridade de poder de compra (PPP): durante a simulação, o câmbio varia de forma estocástica mas reverte para este valor corrigido pela diferença entre o IPCA acumulado e a inflação americana acumulada (ou seja, o BRL tende a se desvalorizar nominalmente ao longo das décadas)."
                                 />
                                 {params.objectiveMode === "preservation" ? (
                                     <Input
@@ -903,7 +914,7 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                                             min={0}
                                             max={15}
                                             step={0.5}
-                                            tooltip="Retorno médio anual esperado (nominal, em USD) da renda variável. Historicamente, o S&P 500 retorna ~10% a.a. nominal e ~7% real. O valor de 7% já embute conservadorismo ao assumir retornos reais como proxy para nominal. ETFs irlandeses têm drag de ~0.3% (WHT + TER). Para planejamento conservador, use 5-6%."
+                                            tooltip="Retorno médio anual esperado (nominal, em USD) da renda variável. Historicamente, o S&P 500 retorna ~10% a.a. nominal, mas as projeções institucionais para a próxima década (Vanguard, BlackRock, JPMorgan, 2026) estão em 4-7% devido ao CAPE elevado (~41x em 2026). O padrão de 6.5% pondera as projeções de curto prazo com a reversão histórica em horizontes de décadas. ETFs irlandeses têm drag de ~0.3% (WHT + TER). Para planejamento conservador, use 5-6%."
                                         />
                                         <Input
                                             label="Volatilidade RV"
@@ -1355,7 +1366,7 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                                         )}
                                         <div className="text-xs text-gray-500 p-2 bg-midnight rounded">
                                             {params.useBucketStrategy
-                                                ? `🪣 Primeiros ${params.bucketYears} anos: saques vêm da RF (${params.tentInitialBondPercent}% = ${formatCurrency(params.initialPortfolioUSD * params.initialFX * (params.tentInitialBondPercent / 100))})`
+                                                ? `🪣 Primeiros ${params.bucketYears} anos: saques vêm da RF (BRL primeiro + RF USD = ${formatCurrency(params.initialPortfolioUSD * params.initialFX * (params.tentInitialBondPercent / 100) + (params.initialPortfolioBRL || 0))})`
                                                 : "Desativado: saques proporcionais à alocação atual RV/RF"}
                                         </div>
                                     </div>
@@ -1501,7 +1512,7 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                                                     min={3}
                                                     max={30}
                                                     step={1}
-                                                    tooltip="A distribuição T-Student captura eventos extremos ('cisnes negros') melhor que a distribuição normal. Os graus de liberdade (ν) controlam o 'peso' das caudas: valores menores = caudas mais gordas = mais eventos extremos. Típico para mercados: ν=5-7. Com ν=5, há ~3x mais chance de retornos além de 3 desvios padrão comparado à normal. Com ν→∞, converge para normal."
+                                                    tooltip="A distribuição T-Student captura eventos extremos ('cisnes negros') melhor que a distribuição normal. Os graus de liberdade (ν) controlam o 'peso' das caudas: valores menores = caudas mais gordas = mais eventos extremos. Retornos DIÁRIOS têm caudas muito gordas (ν≈3-5), mas retornos ANUAIS — que esta simulação usa — são mais próximos da normal por agregação: ν=8-15 é o típico. Com ν→∞, converge para normal."
                                                 />
                                             )}
                                         </div>
@@ -1540,7 +1551,7 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                                                         min={-0.9}
                                                         max={0}
                                                         step={0.1}
-                                                        tooltip="Correlação entre retornos de RV e variação cambial em condições NORMAIS de mercado. Valor NEGATIVO significa que quando a bolsa cai, o dólar sobe (protegendo parcialmente o investidor brasileiro). Historicamente ~-0.3 a -0.5 para Brasil. Valor 0 = sem correlação. Esta é a correlação 'base' que é amplificada em crises."
+                                                        tooltip="Correlação entre retornos de RV e variação cambial em condições NORMAIS de mercado. Valor NEGATIVO significa que quando a bolsa cai, o dólar sobe (protegendo parcialmente o investidor brasileiro). Nos dados anuais 1996-2024 (S&P 500 vs BRL/USD), a correlação realizada foi -0.33 — consistente com a literatura de 'moedas beta' (-0.3 a -0.5). Valor 0 = sem correlação. Esta é a correlação 'base' que é amplificada em crises."
                                                     />
                                                     <Input
                                                         label="Multiplicador em Crises"
@@ -1595,7 +1606,7 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                                                         min={0}
                                                         max={15}
                                                         step={0.5}
-                                                        tooltip="Inflação média anual esperada no Brasil (IPCA). A meta do BC é 3% com banda de 1.5pp. Historicamente fica entre 4-6%. O modelo simula variação ano a ano ao redor desta média, com leve correlação negativa com RV (inflação tende a subir em crises econômicas). IPCA é limitado entre 0% e 15% na simulação."
+                                                        tooltip="Inflação média anual esperada no Brasil (IPCA). A meta do BC é 3% com banda de 1.5pp. O Focus (jul/2026) projeta 5.3% para 2026 convergindo a 3.5% no longo prazo — 4% é um meio-termo realista dado o histórico de ancoragem acima da meta. O modelo simula variação ano a ano ao redor desta média, com leve correlação negativa com RV. IPCA é limitado entre 0% e 15% na simulação."
                                                     />
                                                     <Input
                                                         label="Spread Real sobre IPCA"
@@ -1612,7 +1623,7 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                                                         min={0}
                                                         max={10}
                                                         step={0.5}
-                                                        tooltip="Prêmio de juro REAL (acima da inflação) da renda fixa brasileira. Tesouro IPCA+ historicamente paga 4-6% + IPCA. Com este modelo ativado, o retorno da RF = IPCA do ano + este spread. Substitui o 'Retorno RF Real' fixo da seção anterior. Mais realista pois captura a relação entre inflação e juros nominais."
+                                                        tooltip="Prêmio de juro REAL (acima da inflação) da renda fixa brasileira. Em 2026, NTN-Bs longas pagam IPCA+7.3-8.3%, mas esse nível embute prêmio de risco fiscal — o juro real neutro estimado pelo BC é 4.5-5.5%. Para horizontes de décadas, 5-6% é mais defensável que travar 7%+. Com este modelo ativado, o retorno da RF = IPCA do ano + este spread. Substitui o 'Retorno RF Real' fixo da seção anterior."
                                                     />
                                                 </>
                                             )}
@@ -1633,7 +1644,7 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                                                 min={0}
                                                 max={10}
                                                 step={0.1}
-                                                tooltip="Inflação anual esperada nos EUA (CPI). Usada como âncora de paridade do poder de compra (PPP) para o câmbio de longo prazo: o BRL tende a se desvalorizar aproximadamente pela diferença entre o IPCA e a inflação americana. Valor típico: 2%."
+                                                tooltip="Inflação anual esperada nos EUA (CPI). Usada como âncora de paridade do poder de compra (PPP) para o câmbio de longo prazo: o BRL tende a se desvalorizar aproximadamente pela diferença entre o IPCA e a inflação americana. O breakeven de 10 anos (TIPS) estava em ~2.2% em jul/2026; a meta do Fed é 2%."
                                             />
                                             <Input
                                                 label="Retorno Bonds EUA"
@@ -1648,7 +1659,7 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                                                 min={0}
                                                 max={15}
                                                 step={0.1}
-                                                tooltip="Retorno nominal esperado da parcela de renda fixa em dólar (Treasuries/agregado). Esta parcela pertence à carteira em USD — diferente da renda fixa brasileira (IPCA + spread), que não tem exposição cambial."
+                                                tooltip="Retorno nominal esperado da parcela de renda fixa em dólar (Treasuries/agregado). O Treasury de 10 anos rendia ~4.6% em jul/2026 e o consenso das projeções institucionais de longo prazo é ~4.7%. Esta parcela pertence à carteira em USD — diferente da renda fixa brasileira (IPCA + spread), que não tem exposição cambial."
                                             />
                                             <Input
                                                 label="Volatilidade Bonds EUA"
@@ -2021,9 +2032,9 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                                     onChange={(v) => updateParam("years", v)}
                                     unit="anos"
                                     min={10}
-                                    max={50}
-                                    step={5}
-                                    tooltip="Por quantos anos você precisa que seu portfólio dure. Para aposentadoria tradicional (65 anos), considere 30 anos. Para FIRE (aposentadoria antecipada aos 40-50 anos), considere 40-50 anos. Este é o período sobre o qual a simulação avalia a sobrevivência do portfólio."
+                                    max={60}
+                                    step={1}
+                                    tooltip="Por quantos anos você precisa que seu portfólio dure. Para aposentadoria tradicional (65 anos), considere 30 anos. Para FIRE (aposentadoria antecipada aos 40-50 anos), considere 50-60 anos — ex.: aposentar aos 42 e planejar até os 100 = 58 anos. Este é o período sobre o qual a simulação avalia a sobrevivência do portfólio."
                                 />
                                 <Input
                                     label="Iterações Monte Carlo"
@@ -2171,13 +2182,15 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                                         <span className="font-mono text-accent">
                                             {formatCurrency(
                                                 params.initialPortfolioUSD *
-                                                    params.initialFX,
+                                                    params.initialFX +
+                                                    (params.initialPortfolioBRL ||
+                                                        0),
                                             )}
                                         </span>
                                     </div>
                                     <div className="flex justify-between pl-2 text-gray-500">
                                         <span>
-                                            ├ RV (
+                                            ├ RV USD (
                                             {100 -
                                                 params.tentInitialBondPercent}
                                             %):
@@ -2194,7 +2207,7 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                                     </div>
                                     <div className="flex justify-between pl-2 text-gray-500">
                                         <span>
-                                            └ RF (
+                                            ├ RF USD (
                                             {params.tentInitialBondPercent}%):
                                         </span>
                                         <span className="font-mono">
@@ -2206,6 +2219,15 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                                             )}
                                         </span>
                                     </div>
+                                    <div className="flex justify-between pl-2 text-gray-500">
+                                        <span>└ RF BRL:</span>
+                                        <span className="font-mono">
+                                            {formatCurrency(
+                                                params.initialPortfolioBRL ||
+                                                    0,
+                                            )}
+                                        </span>
+                                    </div>
                                     {params.objectiveMode === "preservation" ? (
                                         <>
                                             <div className="flex justify-between pt-1 border-t border-gray-800 mt-1">
@@ -2214,10 +2236,12 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                                                 </span>
                                                 <span className="font-mono text-info">
                                                     {formatCurrency(
-                                                        params.initialPortfolioUSD *
+                                                        (params.initialPortfolioUSD *
+                                                            params.initialFX +
+                                                            (params.initialPortfolioBRL ||
+                                                                0)) *
                                                             (params.withdrawalRate /
-                                                                100) *
-                                                            params.initialFX,
+                                                                100),
                                                     )}
                                                 </span>
                                             </div>
@@ -2227,10 +2251,12 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                                                 </span>
                                                 <span className="font-mono text-info">
                                                     {formatCurrency(
-                                                        (params.initialPortfolioUSD *
+                                                        ((params.initialPortfolioUSD *
+                                                            params.initialFX +
+                                                            (params.initialPortfolioBRL ||
+                                                                0)) *
                                                             (params.withdrawalRate /
-                                                                100) *
-                                                            params.initialFX) /
+                                                                100)) /
                                                             12,
                                                     )}
                                                 </span>
