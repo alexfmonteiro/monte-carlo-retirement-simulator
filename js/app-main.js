@@ -4053,6 +4053,13 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                                             )}
 
                                             {projectionResults && (
+                                                <SustainableSpendingByAgeChart
+                                                    byAge={projectionResults.byAge}
+                                                    targetSpendingBRL={params.targetSpendingBRL}
+                                                />
+                                            )}
+
+                                            {projectionResults && (
                                                 <div className="bg-surface rounded-xl p-4 border border-gray-800">
                                                     <div className="flex items-center gap-2 mb-4">
                                                         <Icon name="Table" size={20} className="text-emerald-400" />
