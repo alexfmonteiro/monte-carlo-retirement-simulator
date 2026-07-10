@@ -377,6 +377,18 @@ class MonteCarloEngine {
             useIPCAModel,
         } = this.params;
 
+        // Accumulation phase (pre-retirement contributions) — off by default
+        const useAccumulation = this.params.useAccumulation || false;
+        const accYears =
+            useAccumulation && this.params.accumulationYears > 0
+                ? this.params.accumulationYears
+                : 0;
+        const monthlyContributionBRL = this.params.monthlyContributionBRL || 0;
+        const contributionSplitUSD = this.params.contributionSplitUSD ?? 80;
+        const contributionGrowthReal = this.params.contributionGrowthReal || 0;
+        const spendingMode = this.params.spendingMode || "rate";
+        const targetSpendingBRL = this.params.targetSpendingBRL || 0;
+
         // USD sleeve (equity + US bonds, subject to FX variation)
         let portfolioUSD = initialPortfolioUSD;
         let currentFX = initialFX;
@@ -392,12 +404,18 @@ class MonteCarloEngine {
         let bondPortionUSD = portfolioUSD * bondAllocation;
         let equityPortionUSD = portfolioUSD * equityAllocation;
 
-        // Spending target in BRL, adjusted by Guyton-Klinger + inflation
-        const totalInitialPortfolioBRL =
-            portfolioUSD * initialFX + initialPortfolioBRL;
-        let currentWithdrawalBRL =
-            totalInitialPortfolioBRL * (withdrawalRate / 100);
-        const initialWithdrawalRate = withdrawalRate / 100;
+        // Spending target in BRL, adjusted by Guyton-Klinger + inflation.
+        // When accumulating, this is deferred until the retirement boundary
+        // (computed from the portfolio value AT that point, not today's).
+        let currentWithdrawalBRL = 0;
+        let initialWithdrawalRate = 0;
+        if (accYears === 0) {
+            const totalInitialPortfolioBRL =
+                portfolioUSD * initialFX + initialPortfolioBRL;
+            currentWithdrawalBRL =
+                totalInitialPortfolioBRL * (withdrawalRate / 100);
+            initialWithdrawalRate = withdrawalRate / 100;
+        }
 
         let previousReturn = 0;
         let cumulativeIpcaFactor = 1.0;
@@ -427,14 +445,134 @@ class MonteCarloEngine {
             yearlyStressData: [
                 { minimumEnforced: false, extraWithdrawn: 0, percentExtra: 0 },
             ],
-            withdrawalSource: ["initial"],
+            withdrawalSource: [accYears > 0 ? "accumulating" : "initial"],
             inssIncomeBRL: [0],
             cumulativeIpcaFactor: [1.0],
             smileMultiplier: [1.0],
             regimeHistory: [currentRegime],
         };
 
+        // --- Accumulation phase: contributions in, no withdrawals ---
+        // Draws the SAME stochastic returns as the retirement loop below
+        // (equity/regime, IPCA, BRL bond, USD bond, FX) so sequence risk
+        // while saving is captured, then adds the year's IPCA-indexed
+        // contribution split between the USD and BRL sleeves at the
+        // current-year FX.
+        for (let totalYear = 1; totalYear <= accYears; totalYear++) {
+            let equityReturnYear;
+            if (this.params.useRegimeSwitching) {
+                const result = this.generateRegimeSwitchingReturn(currentRegime);
+                equityReturnYear = result.return;
+                currentRegime = result.newRegime;
+            } else {
+                equityReturnYear = this.generateReturn(
+                    equityReturn / 100,
+                    equityVolatility / 100,
+                );
+            }
+
+            if (this.params.useSequenceConstraint) {
+                if (equityReturnYear < 0) {
+                    consecutiveNegativeYears++;
+                    if (consecutiveNegativeYears >= this.params.maxNegativeSequence) {
+                        equityReturnYear = this.random() * 0.1;
+                        consecutiveNegativeYears = 0;
+                    }
+                } else {
+                    consecutiveNegativeYears = 0;
+                }
+            }
+
+            const ipcaYear = this.generateIPCA(equityReturnYear);
+            cumulativeIpcaFactor *= (1 + ipcaYear);
+
+            const brlBondReturnYear = this.generateBondReturn(ipcaYear);
+            const usdBondReturnYear = this.generateUsdBondReturn();
+
+            const prevTotalBRL = portfolioUSD * currentFX + portfolioBRLFixed;
+
+            // Grow the BRL sleeve
+            portfolioBRLFixed *= (1 + brlBondReturnYear);
+
+            // Update FX (correlated with the actual equity shock, PPP anchor)
+            currentFX = this.simulateCurrency(
+                equityReturnYear,
+                currentFX,
+                totalYear,
+                cumulativeIpcaFactor,
+            );
+
+            // Grow the USD sleeve at the initial static allocation — tent/
+            // bucket glide paths only start once retirement begins.
+            const usdReturn =
+                equityAllocation * equityReturnYear +
+                bondAllocation * usdBondReturnYear;
+            portfolioUSD *= (1 + usdReturn);
+
+            // Add this year's IPCA-indexed contribution, split at the
+            // current-year FX
+            const annualContributionBRL =
+                monthlyContributionBRL *
+                12 *
+                cumulativeIpcaFactor *
+                Math.pow(1 + contributionGrowthReal / 100, totalYear - 1);
+            const contributionToUSD_BRL =
+                annualContributionBRL * (contributionSplitUSD / 100);
+            const contributionToUSD = contributionToUSD_BRL / currentFX;
+            const contributionToBRL =
+                annualContributionBRL * (1 - contributionSplitUSD / 100);
+            portfolioUSD += contributionToUSD;
+            portfolioBRLFixed += contributionToBRL;
+
+            bondPortionUSD = portfolioUSD * bondAllocation;
+            equityPortionUSD = portfolioUSD * equityAllocation;
+
+            const totalPortfolioBRL =
+                portfolioUSD * currentFX + portfolioBRLFixed;
+            previousReturn =
+                prevTotalBRL > 0 ? totalPortfolioBRL / prevTotalBRL - 1 : 0;
+
+            portfolioBRL = totalPortfolioBRL;
+
+            history.portfolioUSD.push(portfolioUSD);
+            history.portfolioBRL.push(portfolioBRL);
+            history.withdrawalBRL.push(0);
+            history.withdrawalUSD.push(0);
+            history.recommendedWithdrawalBRL.push(0);
+            history.fxRate.push(currentFX);
+            history.bondAllocation.push(bondAllocation * 100);
+            history.rulesApplied.push(null);
+            history.minimumEnforced.push(false);
+            history.yearlyStressData.push({
+                minimumEnforced: false,
+                extraWithdrawn: 0,
+                percentExtra: 0,
+            });
+            history.withdrawalSource.push("accumulating");
+            history.inssIncomeBRL.push(0);
+            history.cumulativeIpcaFactor.push(cumulativeIpcaFactor);
+            history.smileMultiplier.push(1.0);
+            history.regimeHistory.push(currentRegime);
+        }
+
+        // --- Retirement boundary: size the first withdrawal ---
+        if (accYears > 0) {
+            const boundaryPortfolioBRL =
+                portfolioUSD * currentFX + portfolioBRLFixed;
+            if (spendingMode === "target") {
+                currentWithdrawalBRL = targetSpendingBRL * cumulativeIpcaFactor;
+            } else {
+                currentWithdrawalBRL =
+                    boundaryPortfolioBRL * (withdrawalRate / 100);
+            }
+            initialWithdrawalRate =
+                boundaryPortfolioBRL > 0
+                    ? currentWithdrawalBRL / boundaryPortfolioBRL
+                    : 0;
+        }
+
         for (let year = 1; year <= years; year++) {
+            const totalYear = accYears + year;
             if (history.failed) {
                 history.portfolioUSD.push(0);
                 history.portfolioBRL.push(0);
@@ -567,7 +705,7 @@ class MonteCarloEngine {
                     ? minimumWithdrawalBRL * cumulativeIpcaFactor
                     : 0;
 
-            const ageThisYear = currentAge + year - 1;
+            const ageThisYear = currentAge + totalYear - 1;
             const inssActive =
                 useINSS && inssMonthlyBRL > 0 && ageThisYear >= inssStartAge;
             const annualINSSBRL = inssActive
@@ -676,18 +814,18 @@ class MonteCarloEngine {
 
             if (minimumWasEnforced && !inStressPeriod) {
                 inStressPeriod = true;
-                currentStressStart = year;
+                currentStressStart = totalYear;
                 currentStressExtraWithdrawn = extraWithdrawnBRL;
             } else if (minimumWasEnforced && inStressPeriod) {
                 currentStressExtraWithdrawn += extraWithdrawnBRL;
             } else if (!minimumWasEnforced && inStressPeriod) {
                 history.stressPeriods.push({
                     startYear: currentStressStart,
-                    endYear: year - 1,
-                    duration: year - currentStressStart,
+                    endYear: totalYear - 1,
+                    duration: totalYear - currentStressStart,
                     totalExtraWithdrawn: currentStressExtraWithdrawn,
                     recovered: true,
-                    recoveryYear: year,
+                    recoveryYear: totalYear,
                 });
                 inStressPeriod = false;
                 currentStressStart = null;
@@ -708,8 +846,8 @@ class MonteCarloEngine {
                 if (inStressPeriod) {
                     history.stressPeriods.push({
                         startYear: currentStressStart,
-                        endYear: year,
-                        duration: year - currentStressStart + 1,
+                        endYear: totalYear,
+                        duration: totalYear - currentStressStart + 1,
                         totalExtraWithdrawn:
                             currentStressExtraWithdrawn + extraWithdrawnBRL,
                         recovered: false,
@@ -718,7 +856,7 @@ class MonteCarloEngine {
                     inStressPeriod = false;
                 }
                 history.failed = true;
-                history.failureYear = year;
+                history.failureYear = totalYear;
                 history.failureType = "depletion";
                 history.failureCause = this.analyzeFailure(
                     previousReturn,
@@ -752,8 +890,8 @@ class MonteCarloEngine {
         if (inStressPeriod && !history.failed) {
             history.stressPeriods.push({
                 startYear: currentStressStart,
-                endYear: years,
-                duration: years - currentStressStart + 1,
+                endYear: accYears + years,
+                duration: accYears + years - currentStressStart + 1,
                 totalExtraWithdrawn: currentStressExtraWithdrawn,
                 recovered: false,
                 recoveryYear: null,
@@ -820,7 +958,14 @@ class MonteCarloEngine {
     }
 
     analyzeResults(simulations) {
-        const years = this.params.years;
+        // Total history length: retirement years plus any accumulation
+        // years prepended by runSimulation() (0 when useAccumulation is
+        // off, keeping this identical to the pre-accumulation behavior).
+        const accYears =
+            this.params.useAccumulation && this.params.accumulationYears > 0
+                ? this.params.accumulationYears
+                : 0;
+        const years = accYears + this.params.years;
         const numSims = simulations.length;
         const { minimumWithdrawalBRL, useMinimumWithdrawal } =
             this.params;
