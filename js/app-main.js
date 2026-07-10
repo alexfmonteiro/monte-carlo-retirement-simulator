@@ -80,12 +80,15 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                     // Accumulation phase (pre-retirement savings)
                     useAccumulation: false, // off by default — existing behavior unchanged
                     accumulationYears: 0, // years of work/saving before withdrawals start
-                    monthlyContributionBRL: 30000, // today's BRL; indexed by simulated IPCA each year
+                    monthlyContributionBRL: 10000, // today's BRL; indexed by simulated IPCA each year
                     contributionSplitUSD: 80, // % of each contribution buying USD assets (rest → BRL sleeve)
                     contributionGrowthReal: 0, // optional % a.a. real growth of savings capacity
                     // Spending-target mode (alternative to rate mode)
                     spendingMode: "rate", // 'rate' (SWR % as today) | 'target' (fixed real spending)
-                    targetSpendingBRL: 240000, // today's BRL per year; indexed by simulated IPCA to retirement date
+                    targetSpendingBRL: 180000, // today's BRL per year; indexed by simulated IPCA to retirement date
+                    // Optional local overrides (js/local-profile.js, gitignored):
+                    // lets a user keep personal figures out of the public repo
+                    ...(typeof LOCAL_PROFILE !== "undefined" ? LOCAL_PROFILE : {}),
                 });
 
                 const [results, setResults] = useState(null);

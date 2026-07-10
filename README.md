@@ -112,6 +112,13 @@ A clássica "Regra dos 4%" foi desenvolvida para o mercado americano com condiç
 | **Curva de Gasto Sustentável por Idade** | Varre 0 a N anos extras de trabalho e traça o saque mensal sustentável (conservador e ajustado por risco) vs. idade de aposentadoria, com referência ao gasto-alvo do usuário |
 | **Tabela de Idades** | Uma linha por idade: patrimônio real projetado, SWR conservador/ajustado, saque mensal equivalente, sobrevivência no gasto-alvo |
 
+### Perfil Local (privacidade)
+
+Para usar seus dados financeiros reais sem publicá-los em um repositório público:
+copie `js/local-profile.example.js` para `js/local-profile.js` (que está no
+`.gitignore`) e preencha seus valores. Qualquer parâmetro do app pode ser
+sobrescrito ali — os defaults do repositório permanecem genéricos.
+
 ### Análise de Stress
 
 | Análise | O que mede |

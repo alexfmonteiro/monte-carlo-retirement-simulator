@@ -1,2 +1,4 @@
 .claude/
 .qwen/
+.DS_Store
+js/local-profile.js
