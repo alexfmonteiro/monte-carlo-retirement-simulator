@@ -10,18 +10,18 @@
 
 ---
 
-## New parameters (defaults from the owner's profile)
+## New parameters (generic defaults — PRIVACY: never commit personal figures; users set their own via the UI or the gitignored local profile override)
 
 ```js
 // Accumulation phase (main app defaults)
 useAccumulation: false,          // off by default — existing behavior unchanged
 accumulationYears: 0,            // years of work/saving before withdrawals start
-monthlyContributionBRL: 30000,   // today's BRL; indexed by simulated IPCA each year
+monthlyContributionBRL: 10000,   // today's BRL; indexed by simulated IPCA each year
 contributionSplitUSD: 80,        // % of each contribution buying USD assets (rest → BRL sleeve)
 contributionGrowthReal: 0,       // optional % a.a. real growth of savings capacity (raises/promotions)
 // Spending-target mode (alternative to rate mode)
 spendingMode: 'rate',            // 'rate' (SWR % as today) | 'target' (fixed real spending)
-targetSpendingBRL: 240000,       // today's BRL per year; indexed by simulated IPCA to retirement date
+targetSpendingBRL: 180000,       // today's BRL per year; indexed by simulated IPCA to retirement date
 ```
 
 ## Engine changes
@@ -74,5 +74,5 @@ Insert a phase-1 loop before the existing year loop when `useAccumulation && acc
 
 - Stochastic accumulation (not deterministic median) is the point of doing this in-engine: a 2008 in year 2 of saving vs year 8 produces different retirement pots; the sweep's percentiles will honestly show that spread.
 - Contributions are BRL-denominated and IPCA-indexed (salary reality), split at the current-year FX — this makes the USD sleeve accumulation FX-path-dependent, which is realistic (you buy fewer dollars when the BRL is weak).
-- Income (10.5k USD/mo) is deliberately NOT a parameter — only savings flow matters to the model; spending while working is outside the portfolio.
+- Gross income is deliberately NOT a parameter — only the savings flow matters to the model; spending while working is outside the portfolio.
 - Endowment page untouched.

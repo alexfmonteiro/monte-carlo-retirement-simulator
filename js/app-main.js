@@ -101,7 +101,14 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                 const [isRunningHistorical, setIsRunningHistorical] =
                     useState(false);
                 const [activeResultsTab, setActiveResultsTab] =
-                    useState("montecarlo"); // 'montecarlo' | 'historical'
+                    useState("montecarlo"); // 'montecarlo' | 'historical' | 'projection'
+                const [projectionResults, setProjectionResults] =
+                    useState(null);
+                const [isRunningProjection, setIsRunningProjection] =
+                    useState(false);
+                const [projectionProgress, setProjectionProgress] =
+                    useState(null);
+                const [shtfResult, setShtfResult] = useState(null);
 
                 const updateParam = (key, value) => {
                     setParams((prev) => ({ ...prev, [key]: value }));
@@ -143,6 +150,54 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                         setIsRunningHistorical(false);
                         setActiveResultsTab("historical");
                     }, 50);
+                };
+
+                // ============================================
+                // RETIREMENT-AGE PROJECTION SWEEP ("Projeção" tab)
+                // ============================================
+                const runProjectionSweep = async () => {
+                    setIsRunningProjection(true);
+                    setProjectionResults(null);
+                    setShtfResult(null);
+                    setProjectionProgress({ n: 0, maxExtraYears: 10 });
+                    setActiveResultsTab("projection");
+
+                    // Let the UI paint the loading state before the first
+                    // (synchronous, potentially heavy) simulation batch runs.
+                    await new Promise((r) => setTimeout(r, 50));
+
+                    // "Se parar hoje" (SHTF) baseline: zero extra years
+                    // worked, spending at the user's actual target — the
+                    // horizon mirrors sweep row n=0 (age today -> 100).
+                    const horizonYears = Math.max(
+                        1,
+                        100 - (params.currentAge || 60),
+                    );
+                    const shtfParams = {
+                        ...params,
+                        useAccumulation: true,
+                        accumulationYears: 0,
+                        years: horizonYears,
+                        spendingMode: "target",
+                    };
+                    const shtfEngine = new MonteCarloEngine(shtfParams);
+                    const shtfRun = shtfEngine.runMonteCarlo(3500);
+                    setShtfResult({
+                        survivalRate: shtfRun.survivalRate,
+                        mortalityAdjustedSurvivalRate:
+                            shtfRun.mortalityAdjustedSurvivalRate ??
+                            shtfRun.survivalRate,
+                    });
+
+                    const engine = new MonteCarloEngine(params);
+                    const sweep = await engine.runRetirementAgeSweep({
+                        maxExtraYears: 10,
+                        onProgress: (p) => setProjectionProgress(p),
+                    });
+
+                    setProjectionResults(sweep);
+                    setIsRunningProjection(false);
+                    setActiveResultsTab("projection");
                 };
 
                 // ============================================
@@ -2721,12 +2776,45 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                                                 <Icon name="History" size={14} />
                                                 {isRunningHistorical ? "Calculando..." : "Backtesting Historico"}
                                             </button>
+                                            <button
+                                                onClick={() => {
+                                                    if (
+                                                        !projectionResults &&
+                                                        !isRunningProjection
+                                                    ) {
+                                                        runProjectionSweep();
+                                                    } else {
+                                                        setActiveResultsTab(
+                                                            "projection",
+                                                        );
+                                                    }
+                                                }}
+                                                disabled={isRunningProjection}
+                                                className={`py-2 px-4 rounded-md text-xs font-medium transition-colors flex items-center gap-2 ${
+                                                    activeResultsTab === "projection"
+                                                        ? "bg-emerald-600 text-white"
+                                                        : "text-gray-400 hover:text-gray-200"
+                                                } ${isRunningProjection ? "opacity-50 cursor-wait" : ""}`}
+                                            >
+                                                <Icon name="TrendingUp" size={14} />
+                                                {isRunningProjection ? "Calculando..." : "Projeção"}
+                                            </button>
                                         </div>
                                         {activeResultsTab === "historical" && historicalResults && (
                                             <button
                                                 onClick={runHistoricalBacktest}
                                                 disabled={isRunningHistorical}
                                                 className="text-xs text-gray-400 hover:text-purple-400 transition-colors flex items-center gap-1"
+                                            >
+                                                <Icon name="RefreshCw" size={12} />
+                                                Recalcular
+                                            </button>
+                                        )}
+                                        {activeResultsTab === "projection" && projectionResults && (
+                                            <button
+                                                onClick={runProjectionSweep}
+                                                disabled={isRunningProjection}
+                                                className="text-xs text-gray-400 hover:text-emerald-400 transition-colors flex items-center gap-1"
                                             >
                                                 <Icon name="RefreshCw" size={12} />
                                                 Recalcular
@@ -3859,6 +3947,191 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                                         </div>
                                     )}
                                     {/* ====== END HISTORICAL BACKTESTING RESULTS ====== */}
+
+                                    {/* ====== PROJECTION (RETIREMENT-AGE SWEEP) RESULTS ====== */}
+                                    {activeResultsTab === "projection" && (
+                                        <div className="space-y-6">
+                                            {isRunningProjection && (
+                                                <div className="bg-surface rounded-xl p-5 border border-gray-800">
+                                                    <div className="flex items-center gap-2 mb-3">
+                                                        <div className="w-4 h-4 border-2 border-emerald-400 border-t-transparent rounded-full animate-spin" />
+                                                        <h3 className="font-semibold text-sm">
+                                                            Calculando projeção (idade a idade)...
+                                                        </h3>
+                                                    </div>
+                                                    <div className="w-full bg-midnight rounded-full h-2 overflow-hidden">
+                                                        <div
+                                                            className="bg-emerald-500 h-2 rounded-full transition-all duration-300"
+                                                            style={{
+                                                                width: `${
+                                                                    projectionProgress
+                                                                        ? Math.round(
+                                                                              ((projectionProgress.n + 1) /
+                                                                                  (projectionProgress.maxExtraYears + 1)) *
+                                                                                  100,
+                                                                          )
+                                                                        : 0
+                                                                }%`,
+                                                            }}
+                                                        />
+                                                    </div>
+                                                    <div className="text-xs text-gray-500 mt-2">
+                                                        {projectionProgress && projectionProgress.ageResult
+                                                            ? `Idade ${projectionProgress.ageResult.age} avaliada (até ${
+                                                                  params.currentAge + projectionProgress.maxExtraYears
+                                                              } anos)...`
+                                                            : "Preparando simulações (isso pode levar alguns segundos)..."}
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            {shtfResult && (
+                                                <div
+                                                    className={`rounded-xl p-5 border ${
+                                                        shtfResult.mortalityAdjustedSurvivalRate >= 96.5
+                                                            ? "bg-success/10 border-success/40"
+                                                            : shtfResult.mortalityAdjustedSurvivalRate >= 83
+                                                              ? "bg-warning/10 border-warning/40"
+                                                              : "bg-danger/10 border-danger/40"
+                                                    }`}
+                                                >
+                                                    <div className="flex items-start justify-between mb-4">
+                                                        <div className="flex items-center gap-3">
+                                                            <div
+                                                                className={`w-12 h-12 rounded-xl flex items-center justify-center ${
+                                                                    shtfResult.mortalityAdjustedSurvivalRate >= 96.5
+                                                                        ? "bg-success/20"
+                                                                        : shtfResult.mortalityAdjustedSurvivalRate >= 83
+                                                                          ? "bg-warning/20"
+                                                                          : "bg-danger/20"
+                                                                }`}
+                                                            >
+                                                                <Icon
+                                                                    name="AlertTriangle"
+                                                                    size={24}
+                                                                    className={
+                                                                        shtfResult.mortalityAdjustedSurvivalRate >= 96.5
+                                                                            ? "text-success"
+                                                                            : shtfResult.mortalityAdjustedSurvivalRate >= 83
+                                                                              ? "text-warning"
+                                                                              : "text-danger"
+                                                                    }
+                                                                />
+                                                            </div>
+                                                            <div>
+                                                                <h3 className="font-semibold">
+                                                                    Se parar hoje ({params.currentAge} anos)
+                                                                </h3>
+                                                                <p className="text-xs text-gray-500">
+                                                                    Sobrevivência gastando{" "}
+                                                                    {formatCurrency(params.targetSpendingBRL)}/ano
+                                                                    (gasto alvo definido na Fase de Acumulação), sem
+                                                                    trabalhar nenhum ano a mais
+                                                                </p>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                    <div className="grid grid-cols-2 gap-4">
+                                                        <div>
+                                                            <div className="text-2xl font-bold">
+                                                                {shtfResult.survivalRate.toFixed(1)}%
+                                                            </div>
+                                                            <div className="text-xs text-gray-500">
+                                                                Sobrevivência (bruta)
+                                                            </div>
+                                                        </div>
+                                                        <div>
+                                                            <div className="text-2xl font-bold">
+                                                                {shtfResult.mortalityAdjustedSurvivalRate.toFixed(1)}%
+                                                            </div>
+                                                            <div className="text-xs text-gray-500">
+                                                                Sobrevivência (ajustada por mortalidade)
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            {projectionResults && (
+                                                <div className="bg-surface rounded-xl p-4 border border-gray-800">
+                                                    <div className="flex items-center gap-2 mb-4">
+                                                        <Icon name="Table" size={20} className="text-emerald-400" />
+                                                        <h3 className="font-semibold">
+                                                            Quanto trabalhar a mais muda o resultado
+                                                        </h3>
+                                                    </div>
+                                                    <div className="overflow-x-auto">
+                                                        <table className="w-full text-xs">
+                                                            <thead>
+                                                                <tr className="text-gray-500 border-b border-gray-800">
+                                                                    <th className="text-left py-2 pr-3">Idade</th>
+                                                                    <th className="text-right py-2 px-3">
+                                                                        Patrimônio (real)
+                                                                    </th>
+                                                                    <th className="text-right py-2 px-3">
+                                                                        SWR conservador
+                                                                    </th>
+                                                                    <th className="text-right py-2 px-3">
+                                                                        SWR ajustado
+                                                                    </th>
+                                                                    <th className="text-right py-2 px-3">
+                                                                        Gasto mensal conservador
+                                                                    </th>
+                                                                    <th className="text-right py-2 px-3">
+                                                                        Gasto mensal ajustado
+                                                                    </th>
+                                                                    <th className="text-right py-2 pl-3">
+                                                                        Sobrev. no gasto alvo
+                                                                    </th>
+                                                                </tr>
+                                                            </thead>
+                                                            <tbody>
+                                                                {projectionResults.byAge.map((row) => (
+                                                                    <tr
+                                                                        key={row.age}
+                                                                        className="border-b border-gray-800/50"
+                                                                    >
+                                                                        <td className="py-2 pr-3 font-medium">
+                                                                            {row.age}
+                                                                        </td>
+                                                                        <td className="text-right py-2 px-3">
+                                                                            {formatCurrency(row.portfolioRealMedian)}
+                                                                        </td>
+                                                                        <td className="text-right py-2 px-3">
+                                                                            {row.swrConservative.toFixed(2)}%
+                                                                        </td>
+                                                                        <td className="text-right py-2 px-3">
+                                                                            {row.swrAdjusted.toFixed(2)}%
+                                                                        </td>
+                                                                        <td className="text-right py-2 px-3">
+                                                                            {formatCurrency(row.monthlyConservative)}
+                                                                        </td>
+                                                                        <td className="text-right py-2 px-3">
+                                                                            {formatCurrency(row.monthlyAdjusted)}
+                                                                        </td>
+                                                                        <td className="text-right py-2 pl-3">
+                                                                            {row.adjustedAtTarget.toFixed(1)}%
+                                                                        </td>
+                                                                    </tr>
+                                                                ))}
+                                                            </tbody>
+                                                        </table>
+                                                    </div>
+                                                    <p className="text-xs text-gray-500 mt-3">
+                                                        Critérios: SWR conservador exige{" "}
+                                                        {projectionResults.criteria.rawSurvival}% de sobrevivência
+                                                        bruta; SWR ajustado exige{" "}
+                                                        {projectionResults.criteria.adjustedSurvival}% de
+                                                        sobrevivência ajustada por mortalidade. "Sobrev. no gasto
+                                                        alvo" usa o gasto alvo definido na Fase de Acumulação,
+                                                        ajustado por mortalidade, mantendo o número de anos extra
+                                                        trabalhados daquela linha.
+                                                    </p>
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+                                    {/* ====== END PROJECTION RESULTS ====== */}
 
                                 </div>
                             )}
