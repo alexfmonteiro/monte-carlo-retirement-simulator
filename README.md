@@ -17,6 +17,7 @@ Um simulador avançado de aposentadoria baseado em simulações de Monte Carlo, 
   - [Regime-Switching](#regime-switching-modelo-markov-de-2-estados)
   - [Ajuste por Mortalidade](#ajuste-por-mortalidade)
   - [Backtesting Histórico](#backtesting-histórico)
+  - [Fase de Acumulação e Projeção de Idade de Aposentadoria](#fase-de-acumulação-e-projeção-de-idade-de-aposentadoria)
 - [Parâmetros de Entrada](#parâmetros-de-entrada)
 - [Calibração dos Defaults](#calibração-dos-defaults)
 - [Interpretação dos Resultados](#interpretação-dos-resultados)
@@ -99,6 +100,24 @@ A clássica "Regra dos 4%" foi desenvolvida para o mercado americano com condiç
 | **Bissecção em Duas Fases** | Fase 1 (busca grossa, 200 iter.) + Fase 2 (busca fina, 1000 iter.) + Validação completa |
 | **Confiança Parametrizável** | Defina a probabilidade de sucesso desejada (70% a 99%) |
 | **Patrimônio Final Alvo** | Defina quanto deseja deixar ao final (R$ 0 = Die With Zero) |
+
+### Fase de Acumulação e Aba "Projeção"
+
+| Funcionalidade | Descrição |
+|----------------|-----------|
+| **Acumulação Estocástica** | Simula anos de trabalho/poupança antes da aposentadoria com os MESMOS sorteios estocásticos (RV, IPCA, câmbio) usados na aposentadoria — captura o risco de sequência também na fase de acumulação |
+| **Aportes Indexados** | Aporte mensal em BRL corrigido pelo IPCA simulado a cada ano, dividido entre as sleeves USD e BRL no câmbio do ano corrente |
+| **Modo Taxa vs. Modo Alvo** | Define o primeiro saque como % do patrimônio na aposentadoria ("taxa") ou como um valor de gasto real fixo hoje, indexado até a aposentadoria ("alvo") |
+| **Card "Se Parar Hoje"** | Mostra a sobrevivência (bruta e ajustada por mortalidade) do gasto-alvo aposentando-se imediatamente (baseline SHTF, 0 anos extras) |
+| **Curva de Gasto Sustentável por Idade** | Varre 0 a N anos extras de trabalho e traça o saque mensal sustentável (conservador e ajustado por risco) vs. idade de aposentadoria, com referência ao gasto-alvo do usuário |
+| **Tabela de Idades** | Uma linha por idade: patrimônio real projetado, SWR conservador/ajustado, saque mensal equivalente, sobrevivência no gasto-alvo |
+
+### Perfil Local (privacidade)
+
+Para usar seus dados financeiros reais sem publicá-los em um repositório público:
+copie `js/local-profile.example.js` para `js/local-profile.js` (que está no
+`.gitignore`) e preencha seus valores. Qualquer parâmetro do app pode ser
+sobrescrito ali — os defaults do repositório permanecem genéricos.
 
 ### Análise de Stress
 
@@ -404,6 +423,20 @@ Crise Severa:      ρ = -0.80
 
 O simulador modela isso dinamicamente baseado na severidade da queda. O choque cambial de cada ano é correlacionado com o *retorno de RV efetivamente sorteado naquele ano* (padronizado em z-score), não com um sorteio auxiliar descartado — garantindo que a correlação realizada na simulação bata com o parâmetro configurado. A reversão à média do câmbio usa uma âncora de paridade de poder de compra (PPP): o câmbio "justo" é o câmbio inicial corrigido pelo IPCA acumulado e deflacionado pela inflação americana acumulada (`usdInflation`), em vez de reverter para sempre ao câmbio nominal inicial.
 
+### Fase de Acumulação e Projeção de Idade de Aposentadoria
+
+Responde "quanto tempo a mais devo trabalhar?" dentro da própria ferramenta, simulando uma fase de acumulação (aportes mensais enquanto ainda trabalha) que alimenta a mesma simulação de aposentadoria já existente.
+
+**Fase de acumulação (`useAccumulation` + `accumulationYears`)**: quando ativada, `runSimulation()` insere um laço de N anos antes do laço de aposentadoria. Cada ano de acumulação sorteia os MESMOS retornos estocásticos (RV/regime, IPCA, RF em BRL, RF em USD, câmbio) usados na aposentadoria — o risco de sequência durante a poupança é capturado, não apenas durante os saques. Não há saques, regras de Guyton-Klinger ou possibilidade de falha durante a acumulação; cada ano soma um aporte anual `monthlyContributionBRL × 12 × IPCA acumulado × (1 + contributionGrowthReal%)^ano`, dividido entre a sleeve USD (`contributionSplitUSD`%, convertida ao câmbio do ano corrente) e a sleeve BRL (o restante). O histórico ganha uma entrada por ano de acumulação (`withdrawalSource: 'accumulating'`), então o comprimento total do histórico é `accumulationYears + years + 1`.
+
+**Fronteira de aposentadoria (`spendingMode`)**: no momento em que a acumulação termina, o primeiro saque é dimensionado de duas formas possíveis:
+- **Modo "taxa"** (padrão): `withdrawalRate`% do patrimônio total na fronteira, exatamente como o modo sem acumulação.
+- **Modo "alvo"**: `targetSpendingBRL` (gasto real de hoje) corrigido pelo IPCA acumulado simulado até a fronteira — carrega o padrão de vida desejado até a data de aposentadoria efetiva.
+
+Os relógios de idade (INSS, tábua de mortalidade, bucket, tenda) começam a contar a partir da fronteira de aposentadoria, não do início da simulação — o saque mínimo garantido só se aplica após a aposentadoria.
+
+**Varredura de idade de aposentadoria (`js/engine-projection.js`, `runRetirementAgeSweep`)**: para cada número de anos extras trabalhados (0 a `maxExtraYears`), roda a simulação de duas fases e bisecciona a maior taxa de saque sustentável (SWR) que atinge os critérios de sobrevivência bruta e ajustada por mortalidade, além de testar a sobrevivência no gasto-alvo real do usuário. O resultado alimenta a aba **"Projeção"**: card "Se parar hoje" (baseline com 0 anos extras), curva de gasto sustentável por idade (`SustainableSpendingByAgeChart`) e uma tabela detalhada por idade.
+
 ---
 
 ## Parâmetros de Entrada
@@ -449,6 +482,18 @@ O simulador modela isso dinamicamente baseado na severidade da queda. O choque c
 | **Seed** | Semente para reprodutibilidade (vazio = aleatório) | - |
 
 > **Reprodutibilidade**: Ao definir um seed, a mesma simulação pode ser replicada exatamente. Útil para comparações e validação.
+
+### Fase de Acumulação
+
+| Parâmetro | Descrição | Default |
+|-----------|-----------|---------|
+| **Ativar Acumulação** | Liga/desliga a fase de acumulação (desligado = comportamento idêntico ao sem esta feature) | Desligado |
+| **Anos de Acumulação** | Quantos anos de trabalho/aportes antes da aposentadoria | 0 |
+| **Aporte Mensal** | Valor mensal de hoje (BRL), corrigido pelo IPCA simulado a cada ano | R$ 30.000 |
+| **% do Aporte em USD** | Fração de cada aporte destinada à sleeve USD; o restante vai para a sleeve BRL | 80% |
+| **Crescimento Real do Aporte** | % a.a. de crescimento real da capacidade de poupança (promoções/carreira) | 0% |
+| **Modo de Gasto** | "Taxa" (SWR% do patrimônio na aposentadoria) ou "Alvo" (gasto real fixo) | Taxa |
+| **Gasto-Alvo** | Gasto anual real de hoje (BRL), usado no modo "Alvo" e na aba Projeção | R$ 240.000 |
 
 ### Estratégia Tenda (Bond Glide Path)
 

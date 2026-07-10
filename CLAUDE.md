@@ -64,6 +64,9 @@ js/
 │                               Random generators, IPCA, currency, tax, Guyton-Klinger,
 │                               spending smile, regime-switching, mortality adjustment,
 │                               runSimulation(), runMonteCarlo(), analyzeResults()
+├── engine-projection.js    — Retirement-age sweep (prototype extensions):
+│                               _bisectSWR, runRetirementAgeSweep — used by the
+│                               "Projeção" tab. Loads right after engine-core.js.
 ├── engine-historical.js    — Historical backtesting methods (prototype extensions):
 │                               runHistoricalBacktest, runAllHistoricalWindows,
 │                               analyzeHistoricalResults
@@ -83,11 +86,13 @@ js/
 ├── ui-endowment.js         — ComparisonLineChart, SurvivalComparisonBar,
 │                               CAPEEvolutionChart, WithdrawalDistributionChart,
 │                               ComparisonTable, EndowmentExplainer
+├── ui-projection.js        — SustainableSpendingByAgeChart and the "Projeção" tab's
+│                               SHTF card, sweep table, and progress UI
 ├── app-main.js             — Main App component + ReactDOM.createRoot mount
 └── app-endowment.js        — Endowment App component + ReactDOM.createRoot mount
 ```
 
-**Script loading rules**: `rng.js`, `mortality-data.js`, `historical-data.js`, and `engine-*.js` are plain `<script src>` (no JSX). All `ui-*.js` and `app-*.js` files use `<script type="text/babel" src="...">` (Babel Standalone compiles them). No `import`/`export` — all names are globals. Data files (`mortality-data.js`, `historical-data.js`) must load before `engine-core.js`.
+**Script loading rules**: `rng.js`, `mortality-data.js`, `historical-data.js`, and `engine-*.js` are plain `<script src>` (no JSX). All `ui-*.js` and `app-*.js` files use `<script type="text/babel" src="...">` (Babel Standalone compiles them). No `import`/`export` — all names are globals. Data files (`mortality-data.js`, `historical-data.js`) must load before `engine-core.js`. `engine-projection.js` must load after `engine-core.js` (it extends `MonteCarloEngine.prototype`); `ui-projection.js` must load before `app-main.js`.
 
 ## Key Technical Patterns
 
@@ -101,6 +106,8 @@ js/
 - **Regime-Switching Returns**: 2-state Markov model (bull/bear) replacing IID returns. Calibrated defaults: bull 12%/12%vol, bear -5%/25%vol. Transition probabilities determine regime clustering. Uses `this.random()` for reproducible transitions.
 - **Mortality-Adjusted Survival**: IBGE 2023 mortality table (male/female/couple). Weights failed simulations by P(dead before failure year). A failure at age 95 contributes less than a failure at age 65.
 - **Historical Backtesting**: Rolling-window backtest against 1995-2024 historical data (S&P 500, CDI/Selic, IPCA, BRL/USD). Mirrors `runSimulation()` logic but with actual historical returns. Produces spaghetti charts, percentile bands, and per-window analysis.
+- **Accumulation Phase**: Optional pre-retirement phase inside `runSimulation()` (`useAccumulation`/`accumulationYears`, off by default). Draws the SAME stochastic returns (equity/regime, IPCA, BRL bond, USD bond, FX) as the retirement loop, so sequence risk while saving is captured. No withdrawals/G-K/failure during accumulation. Each year adds an IPCA-indexed contribution (`monthlyContributionBRL`, optionally growing at `contributionGrowthReal`%) split between the USD sleeve (`contributionSplitUSD`%, at the current-year FX) and the BRL sleeve. History gets one `withdrawalSource: 'accumulating'` entry per accumulation year, so `history` length = `accumulationYears + years + 1`. At the retirement boundary the first withdrawal is sized either as `withdrawalRate`% of the boundary portfolio (`spendingMode: 'rate'`) or as `targetSpendingBRL × cumulativeIpcaFactor` (`spendingMode: 'target'`); INSS/mortality/bucket/tent clocks all start counting at the boundary, not at simulation start.
+- **Retirement-Age Sweep**: `js/engine-projection.js` extends `MonteCarloEngine.prototype` with `runRetirementAgeSweep()` — for each candidate number of extra years worked, runs the two-phase Monte Carlo and bisects the max sustainable SWR meeting raw/mortality-adjusted survival criteria, plus survival at the user's actual `targetSpendingBRL`. Powers the "Projeção" tab (SHTF card at 0 extra years, sustainable-spending-by-age curve, per-age table).
 
 ## Modification Guide
 
@@ -123,3 +130,5 @@ The test suite (`tests.html`) is a zero-dependency browser-based test framework 
 7. **Edge Cases**: Zero portfolio, extreme correlations, low degrees of freedom
 8. **Deterministic Scenarios**: Multi-year seeded sequences triggering specific rules
 9. **Optimizer**: Bisection convergence, limits, seed consistency
+10. **Accumulation Phase**: Closed-form contribution/growth indexation, history-length and no-withdrawal boundary correctness, spending-target vs. rate-mode boundary sizing
+11. **Retirement-Age Sweep**: Shape/finiteness of `runRetirementAgeSweep()` output, sustainable-SWR monotonicity vs. extra years worked

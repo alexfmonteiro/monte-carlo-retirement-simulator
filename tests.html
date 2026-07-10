@@ -123,6 +123,7 @@
     <script src="js/rng.js"></script>
     <script src="js/mortality-data.js"></script>
     <script src="js/engine-core.js"></script>
+    <script src="js/engine-projection.js"></script>
     <script>
         // ============================================
         // MINIMAL TEST FRAMEWORK (Zero Dependencies)
@@ -1860,6 +1861,220 @@
                 for (let y = 2; y <= 5; y++) {
                     const g = h.withdrawalBRL[y] / h.withdrawalBRL[y - 1];
                     assertAlmostEqual(g, 1.05, 0.001, `year ${y}: BRL withdrawal growth was ${g}`);
+                }
+            });
+        });
+
+        tf.describe('Accumulation Phase: Closed-Form Indexation', () => {
+            tf.it('BRL-only portfolio after n accumulation years matches closed-form growth + contributions', () => {
+                // Zero volatility, fixed inflation, no FX exposure (USD sleeve
+                // stays at 0 throughout) isolates the BRL sleeve so the
+                // engine's year-by-year math can be reproduced by a plain
+                // JS loop and compared to the engine's own history.
+                const bondReturn = 6; // %
+                const inflation = 4.5; // %
+                const monthlyContributionBRL = 5000;
+                const initialPortfolioBRL = 200000;
+                const n = 6;
+                const params = {
+                    ...getDefaultParams(),
+                    seed: 77,
+                    initialPortfolioUSD: 0,
+                    initialPortfolioBRL,
+                    bondReturn,
+                    bondVolatility: 0,
+                    inflation,
+                    useIPCAModel: false,
+                    useStudentT: false,
+                    useDynamicCorrelation: false,
+                    baseCorrelation: -1, // eliminates the independent FX shock term
+                    useTaxModel: false,
+                    useAccumulation: true,
+                    accumulationYears: n,
+                    monthlyContributionBRL,
+                    contributionSplitUSD: 0, // all contributions to the BRL sleeve
+                    contributionGrowthReal: 0,
+                    years: 5,
+                };
+                const engine = new MonteCarloEngine(params);
+                const h = engine.runSimulation();
+
+                // Reproduce the engine's own contribution timing (grow, then
+                // add contribution) in a plain loop.
+                const r = bondReturn / 100;
+                const infl = inflation / 100;
+                let expected = initialPortfolioBRL;
+                let cumIpca = 1.0;
+                for (let k = 1; k <= n; k++) {
+                    expected *= (1 + r);
+                    cumIpca *= (1 + infl);
+                    const contrib = monthlyContributionBRL * 12 * cumIpca;
+                    expected += contrib;
+                }
+
+                assertAlmostEqual(
+                    h.portfolioBRL[n], expected, expected * 0.001,
+                    `after ${n} years expected ${expected.toFixed(2)}, got ${h.portfolioBRL[n].toFixed(2)}`
+                );
+                // USD sleeve never received anything (split = 0%, initial = 0)
+                assertAlmostEqual(h.portfolioUSD[n], 0, 0.01, 'USD sleeve should stay at 0');
+            });
+        });
+
+        tf.describe('Accumulation Phase: Boundary Correctness', () => {
+            const n = 4;
+            const retirementYears = 10;
+            const baseParams = {
+                ...getDefaultParams(),
+                seed: 5,
+                useAccumulation: true,
+                accumulationYears: n,
+                years: retirementYears,
+                monthlyContributionBRL: 8000,
+                contributionSplitUSD: 70,
+                useMinimumWithdrawal: true,
+                minimumWithdrawalBRL: 50000,
+                useINSS: true,
+                currentAge: 55,
+                inssStartAge: 65,
+                inssMonthlyBRL: 3000,
+            };
+
+            tf.it('history length equals accumulationYears + years + 1', () => {
+                const engine = new MonteCarloEngine(baseParams);
+                const h = engine.runSimulation();
+                assertEqual(h.portfolioBRL.length, n + retirementYears + 1,
+                    `expected length ${n + retirementYears + 1}, got ${h.portfolioBRL.length}`);
+                assertEqual(h.withdrawalBRL.length, n + retirementYears + 1);
+            });
+
+            tf.it('no withdrawals during accumulation years (indices 1..n)', () => {
+                const engine = new MonteCarloEngine(baseParams);
+                const h = engine.runSimulation();
+                for (let i = 1; i <= n; i++) {
+                    assertEqual(h.withdrawalBRL[i], 0, `year ${i} should have no withdrawal`);
+                    assertEqual(h.withdrawalSource[i], 'accumulating', `year ${i} source should be 'accumulating'`);
+                    assertEqual(h.inssIncomeBRL[i], 0, `year ${i} should have no INSS income (pre-retirement)`);
+                }
+            });
+
+            tf.it('withdrawals only begin at/after the retirement boundary', () => {
+                const engine = new MonteCarloEngine(baseParams);
+                const h = engine.runSimulation();
+                let sawWithdrawal = false;
+                for (let i = n + 1; i < h.withdrawalBRL.length; i++) {
+                    if (h.withdrawalBRL[i] > 0) sawWithdrawal = true;
+                }
+                assert(sawWithdrawal, 'expected at least one positive withdrawal after retirement boundary');
+            });
+        });
+
+        tf.describe('Accumulation Phase: Spending-Target Mode', () => {
+            tf.it('first post-boundary withdrawal equals targetSpendingBRL x cumulative IPCA', () => {
+                const n = 5;
+                const targetSpendingBRL = 150000;
+                const params = {
+                    ...getDefaultParams(),
+                    seed: 21,
+                    useIPCAModel: false,
+                    inflation: 4.5,
+                    useGuytonKlinger: false, // isolate the boundary sizing from stochastic G-K rule triggers
+                    useAccumulation: true,
+                    accumulationYears: n,
+                    monthlyContributionBRL: 6000,
+                    contributionSplitUSD: 80,
+                    spendingMode: 'target',
+                    targetSpendingBRL,
+                    years: 10,
+                };
+                const engine = new MonteCarloEngine(params);
+                const h = engine.runSimulation();
+
+                const expectedCumIpca = Math.pow(1 + params.inflation / 100, n);
+                assertAlmostEqual(
+                    h.cumulativeIpcaFactor[n], expectedCumIpca, expectedCumIpca * 0.001,
+                    `boundary cumIpca mismatch: expected ${expectedCumIpca}, got ${h.cumulativeIpcaFactor[n]}`
+                );
+
+                // The value AT the boundary (before year n+1) is targetSpendingBRL x
+                // cumIpca[n]. history.recommendedWithdrawalBRL[n+1] already reflects
+                // year n+1's (G-K-disabled, flat) inflation adjustment, so the
+                // expectation grows by one more year of the same fixed inflation.
+                const boundaryWithdrawal = targetSpendingBRL * h.cumulativeIpcaFactor[n];
+                const expectedWithdrawal = boundaryWithdrawal * (1 + params.inflation / 100);
+                assertAlmostEqual(
+                    h.recommendedWithdrawalBRL[n + 1], expectedWithdrawal, expectedWithdrawal * 0.001,
+                    `first withdrawal should be ~${expectedWithdrawal.toFixed(2)}, got ${h.recommendedWithdrawalBRL[n + 1].toFixed(2)}`
+                );
+            });
+
+            tf.it('rate mode sizes the first withdrawal as withdrawalRate% of the boundary portfolio', () => {
+                const n = 3;
+                const withdrawalRate = 4.0;
+                const params = {
+                    ...getDefaultParams(),
+                    seed: 33,
+                    useIPCAModel: false,
+                    inflation: 4.5,
+                    useGuytonKlinger: false, // isolate the boundary sizing from stochastic G-K rule triggers
+                    useAccumulation: true,
+                    accumulationYears: n,
+                    monthlyContributionBRL: 7000,
+                    contributionSplitUSD: 80,
+                    spendingMode: 'rate',
+                    withdrawalRate,
+                    years: 10,
+                };
+                const engine = new MonteCarloEngine(params);
+                const h = engine.runSimulation();
+                const boundaryPortfolioBRL = h.portfolioBRL[n];
+                // The value AT the boundary is withdrawalRate% of the boundary
+                // portfolio; recommendedWithdrawalBRL[n+1] reflects one more
+                // year of (G-K-disabled, flat) inflation adjustment on top.
+                const boundaryWithdrawal = boundaryPortfolioBRL * (withdrawalRate / 100);
+                const expectedWithdrawal = boundaryWithdrawal * (1 + params.inflation / 100);
+                assertAlmostEqual(
+                    h.recommendedWithdrawalBRL[n + 1], expectedWithdrawal, Math.max(1, expectedWithdrawal * 0.001),
+                    `first withdrawal should be ~${expectedWithdrawal.toFixed(2)}, got ${h.recommendedWithdrawalBRL[n + 1].toFixed(2)}`
+                );
+            });
+        });
+
+        tf.describe('Retirement-Age Sweep: Monotonicity', () => {
+            tf.it('sustainable SWR is non-decreasing (within tolerance) as extra years worked increases', async () => {
+                const params = {
+                    ...getDefaultParams(),
+                    seed: 99,
+                    currentAge: 60,
+                    targetSpendingBRL: 120000,
+                    monthlyContributionBRL: 6000,
+                    contributionSplitUSD: 80,
+                    initialPortfolioUSD: 400000,
+                    initialPortfolioBRL: 300000,
+                    years: 30,
+                };
+                const engine = new MonteCarloEngine(params);
+                const { byAge } = await engine.runRetirementAgeSweep({
+                    maxExtraYears: 2,
+                    probeIterations: 120,
+                    confirmIterations: 200,
+                });
+
+                assertEqual(byAge.length, 3, 'expected 3 ages (0, 1, 2 extra years)');
+                for (const row of byAge) {
+                    assert(Number.isFinite(row.swrConservative), `swrConservative not finite at age ${row.age}`);
+                    assert(Number.isFinite(row.swrAdjusted), `swrAdjusted not finite at age ${row.age}`);
+                    assert(Number.isFinite(row.portfolioRealMedian), `portfolioRealMedian not finite at age ${row.age}`);
+                }
+
+                // Statistical tolerance: allow a small dip due to Monte Carlo
+                // noise at low iteration counts, but the trend should not
+                // reverse sharply.
+                for (let i = 1; i < byAge.length; i++) {
+                    assert(
+                        byAge[i].swrConservative >= byAge[i - 1].swrConservative - 1.0,
+                        `SWR at age ${byAge[i].age} (${byAge[i].swrConservative}) dropped too much vs age ${byAge[i - 1].age} (${byAge[i - 1].swrConservative})`
+                    );
                 }
             });
         });
