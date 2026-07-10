@@ -412,9 +412,17 @@ class MonteCarloEngine {
         if (accYears === 0) {
             const totalInitialPortfolioBRL =
                 portfolioUSD * initialFX + initialPortfolioBRL;
-            currentWithdrawalBRL =
-                totalInitialPortfolioBRL * (withdrawalRate / 100);
-            initialWithdrawalRate = withdrawalRate / 100;
+            if (spendingMode === "target") {
+                // cumulativeIpcaFactor === 1 at t0
+                currentWithdrawalBRL = targetSpendingBRL;
+            } else {
+                currentWithdrawalBRL =
+                    totalInitialPortfolioBRL * (withdrawalRate / 100);
+            }
+            initialWithdrawalRate =
+                totalInitialPortfolioBRL > 0
+                    ? currentWithdrawalBRL / totalInitialPortfolioBRL
+                    : 0;
         }
 
         let previousReturn = 0;
@@ -590,7 +598,11 @@ class MonteCarloEngine {
                 });
                 history.withdrawalSource.push("none");
                 history.inssIncomeBRL.push(0);
-                history.cumulativeIpcaFactor.push(history.cumulativeIpcaFactor[year - 1]);
+                history.cumulativeIpcaFactor.push(
+                    history.cumulativeIpcaFactor[
+                        history.cumulativeIpcaFactor.length - 1
+                    ]
+                );
                 history.smileMultiplier.push(1.0);
                 history.regimeHistory.push(currentRegime);
                 continue;
