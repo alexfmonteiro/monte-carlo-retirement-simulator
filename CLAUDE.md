@@ -132,3 +132,12 @@ The test suite (`tests.html`) is a zero-dependency browser-based test framework 
 9. **Optimizer**: Bisection convergence, limits, seed consistency
 10. **Accumulation Phase**: Closed-form contribution/growth indexation, history-length and no-withdrawal boundary correctness, spending-target vs. rate-mode boundary sizing
 11. **Retirement-Age Sweep**: Shape/finiteness of `runRetirementAgeSweep()` output, sustainable-SWR monotonicity vs. extra years worked
+
+## Backlog and the governor
+
+This repo's backlog is its GitHub Issues. Alex's claude-governor works approved issues overnight and opens draft PRs from `agent/<n>-<slug>` branches.
+
+- **Ideas become issues.** When Alex shares an idea or feature request, or you notice follow-up work outside the current task, capture it as an issue instead of starting it (unless he asks you to build it now). Use `/backlog <idea>` if the skill is available; otherwise `gh issue create` with the sections Context / Proposed change / Acceptance criteria / Out of scope / Unattended suitability, and the labels `proposed`, one of `p1`–`p3`, and one of `size:S|M|L`. He approves items in the morning check-in.
+- **Approval words.** "For tonight" or "go ahead" means `auto-ok` instead of `proposed`; "now" also adds `run-now`. Something only Alex can decide gets `needs-decision` with the question and options in the body.
+- **Avoid overlap.** Before starting work, check for an open `agent/` PR or an `agent-wip` issue covering the same change.
+- **Public repo.** Issues are public: no personal portfolio figures or profile values in titles or bodies.
