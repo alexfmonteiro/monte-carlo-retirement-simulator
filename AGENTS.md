@@ -34,7 +34,14 @@ engine.runSimulation()  # Single simulation path
 engine.runMonteCarlo(100)  # 100-iteration Monte Carlo
 ```
 
-**No npm test command exists** - tests run entirely in the browser.
+**Headless (no browser):**
+
+```bash
+node scripts/run-tests.js  # Full tests.html suite; prints failures, exits 1 on any failure
+node scripts/smoke.js      # Finiteness/shape smoke checks
+```
+
+**No npm test command exists** - use the Node scripts above or the browser runner.
 
 ### Deployment
 

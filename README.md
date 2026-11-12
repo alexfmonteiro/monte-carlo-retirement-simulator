@@ -567,8 +567,9 @@ O servidor local é necessário — abrir `index.html` direto do arquivo não fu
 python -m http.server 8000
 # http://localhost:8000/tests.html → clique "Run All Tests"
 
-# ou o smoke test sem navegador:
-node scripts/smoke.js
+# ou sem navegador:
+node scripts/run-tests.js   # suíte completa do tests.html
+node scripts/smoke.js       # smoke test
 ```
 
 A suíte cobre distribuições estatísticas, regras Guyton-Klinger, impostos, modelo IPCA, correlação FX realizada, integração das sleeves BRL/USD, denominação do gasto em BRL, fase de acumulação (indexação de aportes, fronteira, modo alvo), varredura de idades, reprodutibilidade com seed, otimizador e regressão E2E.
