@@ -46,6 +46,7 @@ All UI text and tooltips are in Portuguese (pt-BR).
 - **Development**: `python -m http.server 8000` then open `http://localhost:8000` (**required** — `file://` won't work because Babel fetches external JS files via XHR)
 - **Deployment**: Push to GitHub and enable Pages (main branch, root directory)
 - **Testing**: Serve locally then open `http://localhost:8000/tests.html` and click "Run All Tests"
+- **Headless testing**: `node scripts/run-tests.js` runs the full `tests.html` suite in Node (exits 1 on any failure); `node scripts/smoke.js` runs browser-free sanity checks
 - **Manual testing**: Use browser console to inspect `engine.runSimulation()` (single path) or `engine.runMonteCarlo(100)` (quick 100-iteration test)
 
 ## Architecture
