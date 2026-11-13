@@ -649,7 +649,7 @@ class MonteCarloEngine {
             currentFX = this.simulateCurrency(
                 equityReturnYear,
                 currentFX,
-                year,
+                totalYear,
                 cumulativeIpcaFactor,
             );
 
