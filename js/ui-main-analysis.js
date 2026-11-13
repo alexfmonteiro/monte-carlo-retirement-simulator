@@ -5,6 +5,7 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                 results,
                 formatCurrency,
                 initialWithdrawalBRL,
+                accumulationYears = 0,
             }) => {
                 const {
                     overallMeanWithdrawal,
@@ -16,6 +17,12 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                 const years = results.withdrawalMeans.length - 1;
                 const earlyYears = Math.floor(years / 3);
                 const midYears = Math.floor((2 * years) / 3);
+                // Periods are on the total timeline; with accumulation on,
+                // label each end so the retirement boundary stays clear.
+                const periodLabel = (from, to) =>
+                    accumulationYears > 0
+                        ? `${timelineLabel(from, accumulationYears)} – ${timelineLabel(to, accumulationYears)}`
+                        : `Anos ${from}-${to}`;
 
                 return (
                     <div className="bg-surface rounded-xl p-4 border border-gray-800">
@@ -67,7 +74,7 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                                 <div className="flex items-center gap-2">
                                     <span className="w-2 h-2 rounded-full bg-blue-400"></span>
                                     <span className="text-gray-300">
-                                        Anos 1-{earlyYears}
+                                        {periodLabel(1, earlyYears)}
                                     </span>
                                 </div>
                                 <div className="text-right">
@@ -83,7 +90,7 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                                 <div className="flex items-center gap-2">
                                     <span className="w-2 h-2 rounded-full bg-yellow-400"></span>
                                     <span className="text-gray-300">
-                                        Anos {earlyYears + 1}-{midYears}
+                                        {periodLabel(earlyYears + 1, midYears)}
                                     </span>
                                 </div>
                                 <div className="text-right">
@@ -99,7 +106,7 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                                 <div className="flex items-center gap-2">
                                     <span className="w-2 h-2 rounded-full bg-green-400"></span>
                                     <span className="text-gray-300">
-                                        Anos {midYears + 1}-{years}
+                                        {periodLabel(midYears + 1, years)}
                                     </span>
                                 </div>
                                 <div className="text-right">
@@ -151,6 +158,7 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                 failedCount,
                 total,
                 failedByDepletion,
+                accumulationYears = 0,
             }) => {
                 const sortedCauses = Object.entries(failureCauses).sort(
                     ([, a], [, b]) => b - a,
@@ -200,7 +208,10 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                                     <span className="ml-2">
                                         (média no ano{" "}
                                         <span className="text-warning font-mono">
-                                            {avgFailureYear.toFixed(1)}
+                                            {(
+                                                avgFailureYear -
+                                                accumulationYears
+                                            ).toFixed(1)}
                                         </span>
                                         )
                                     </span>
