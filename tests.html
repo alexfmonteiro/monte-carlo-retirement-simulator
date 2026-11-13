@@ -1162,6 +1162,24 @@
                     assertEqual(v1, v2, `Normal values should be identical at step ${i}`);
                 }
             });
+
+            tf.it('REGRESSION: null seed should draw a random numeric seed per engine', () => {
+                const engine1 = new MonteCarloEngine({ ...getDefaultParams(), seed: null });
+                const engine2 = new MonteCarloEngine({ ...getDefaultParams(), seed: null });
+                assert(Number.isFinite(engine1.getSeed()), `getSeed() should be a number, got ${engine1.getSeed()}`);
+                assert(Number.isFinite(engine2.getSeed()), `getSeed() should be a number, got ${engine2.getSeed()}`);
+                assert(engine1.getSeed() !== engine2.getSeed(), 'Two null-seed engines should get different seeds');
+                assert(engine1.random() !== engine2.random(), 'Two null-seed engines should produce different draws');
+            });
+
+            tf.it('REGRESSION: seed 0 should be honored and reproducible', () => {
+                const engine1 = new MonteCarloEngine({ ...getDefaultParams(), seed: 0 });
+                const engine2 = new MonteCarloEngine({ ...getDefaultParams(), seed: 0 });
+                assertEqual(engine1.getSeed(), 0, 'getSeed() should return 0');
+                for (let i = 0; i < 20; i++) {
+                    assertEqual(engine1.random(), engine2.random(), `Seed-0 values should be identical at step ${i}`);
+                }
+            });
         });
 
         // ============================================
@@ -2105,6 +2123,81 @@
                 const noAcc = { ...helperParams, useAccumulation: false };
                 const initialBRL = noAcc.initialPortfolioUSD * noAcc.initialFX + (noAcc.initialPortfolioBRL || 0);
                 assertAlmostEqual(MonteCarloEngine.optimizerAnnualWithdrawalBRL(results, noAcc, 4), initialBRL * 0.04, 1e-6);
+            });
+        });
+
+        tf.describe('Accumulation Phase: FX PPP Fair Value Clock', () => {
+            // Records the (year, cumIpcaFactor) args of every simulateCurrency call.
+            function recordFXCalls(engine) {
+                const calls = [];
+                const original = engine.simulateCurrency.bind(engine);
+                engine.simulateCurrency = (equityReturn, baseFX, year, cumIpcaFactor, vol) => {
+                    calls.push({ year, cumIpcaFactor });
+                    return original(equityReturn, baseFX, year, cumIpcaFactor, vol);
+                };
+                return calls;
+            }
+
+            tf.it('FX year argument runs 1..N+years across the retirement boundary', () => {
+                const n = 3;
+                const retirementYears = 10;
+                const params = {
+                    ...getDefaultParams(),
+                    seed: 11,
+                    useAccumulation: true,
+                    accumulationYears: n,
+                    years: retirementYears,
+                    monthlyContributionBRL: 5000,
+                    contributionSplitUSD: 70,
+                    initialPortfolioUSD: 5000000, // large enough to never fail
+                };
+                const engine = new MonteCarloEngine(params);
+                const calls = recordFXCalls(engine);
+                engine.runSimulation();
+                assertEqual(calls.length, n + retirementYears, `expected ${n + retirementYears} FX calls, got ${calls.length}`);
+                calls.forEach((c, i) => {
+                    assertEqual(c.year, i + 1, `FX call ${i + 1} got year ${c.year}`);
+                });
+            });
+
+            tf.it('implied PPP fair value is continuous across the retirement boundary', () => {
+                const n = 3;
+                const params = {
+                    ...getDefaultParams(),
+                    seed: 11,
+                    useIPCAModel: false, // fixed inflation => constant fair-value growth per year
+                    inflation: 4.5,
+                    usdInflation: 2.0,
+                    useAccumulation: true,
+                    accumulationYears: n,
+                    years: 10,
+                    monthlyContributionBRL: 5000,
+                    contributionSplitUSD: 70,
+                    initialPortfolioUSD: 5000000,
+                };
+                const engine = new MonteCarloEngine(params);
+                const calls = recordFXCalls(engine);
+                engine.runSimulation();
+                const fair = calls.map(c =>
+                    params.initialFX * c.cumIpcaFactor / Math.pow(1 + params.usdInflation / 100, c.year));
+                const expectedRatio = (1 + params.inflation / 100) / (1 + params.usdInflation / 100);
+                for (let i = 1; i < fair.length; i++) {
+                    assertAlmostEqual(fair[i] / fair[i - 1], expectedRatio, 1e-9,
+                        `fair FX jumps between year ${i} and ${i + 1}: ratio ${fair[i] / fair[i - 1]}`);
+                }
+            });
+
+            tf.it('accumulation off: FX year runs 1..years and results match the pre-fix baseline', () => {
+                const params = { ...getDefaultParams(), seed: 17, useIPCAModel: true, useDynamicCorrelation: true };
+                const engine = new MonteCarloEngine(params);
+                const calls = recordFXCalls(engine);
+                const h = engine.runSimulation();
+                calls.forEach((c, i) => assertEqual(c.year, i + 1, `FX call ${i + 1} got year ${c.year}`));
+                // Final BRL balance recorded with the pre-fix engine for this seed.
+                const baseline = 6847552.79024196;
+                const finalBRL = h.portfolioBRL[h.portfolioBRL.length - 1];
+                assertAlmostEqual(finalBRL, baseline, baseline * 1e-12,
+                    `final BRL ${finalBRL} differs from pre-fix baseline ${baseline}`);
             });
         });
 

@@ -37,7 +37,7 @@ MonteCarloEngine.prototype._bisectSWR = async function (
 ) {
     const probeIterations = opts.probeIterations || 1200;
     const confirmIterations = opts.confirmIterations || 3500;
-    const seed = opts.seed || Math.floor(Math.random() * 2147483647);
+    const seed = Number.isFinite(opts.seed) ? opts.seed : Math.floor(Math.random() * 2147483647);
 
     const runWithSWR = (swr, iterations) => {
         const testParams = { ...baseParams, withdrawalRate: swr, seed };
@@ -153,7 +153,9 @@ MonteCarloEngine.prototype.runRetirementAgeSweep = async function (options = {})
         };
         const targetEngine = new MonteCarloEngine({
             ...targetParams,
-            seed: this.params.seed || Math.floor(Math.random() * 2147483647),
+            seed: Number.isFinite(this.params.seed)
+                ? this.params.seed
+                : Math.floor(Math.random() * 2147483647),
         });
         const targetResults = targetEngine.runMonteCarlo(confirmIterations);
 

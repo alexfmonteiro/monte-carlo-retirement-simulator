@@ -511,6 +511,7 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
             const StressChart = ({
                 stressChartData,
                 years,
+                accumulationYears = 0,
                 minimumWithdrawal,
             }) => {
                 const chartRef = useRef(null);
@@ -529,10 +530,7 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                     }
 
                     const ctx = canvasRef.current.getContext("2d");
-                    const labels = Array.from(
-                        { length: years + 1 },
-                        (_, i) => `Ano ${i}`,
-                    );
+                    const labels = timelineLabels(years, accumulationYears);
 
                     chartRef.current = new Chart(ctx, {
                         type: "line",
@@ -610,12 +608,13 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                                 },
                             },
                         },
+                        plugins: retirementMarkerPlugins(accumulationYears),
                     });
 
                     return () => {
                         if (chartRef.current) chartRef.current.destroy();
                     };
-                }, [stressChartData, years]);
+                }, [stressChartData, years, accumulationYears]);
 
                 if (
                     !stressChartData ||
@@ -655,7 +654,7 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                                 Pico de stress:
                             </span>
                             <span className="font-mono text-red-400">
-                                Ano {peakYear} ({maxStressPercent.toFixed(1)}%
+                                {timelineLabel(peakYear, accumulationYears)} ({maxStressPercent.toFixed(1)}%
                                 das simulações)
                             </span>
                         </div>

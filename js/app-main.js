@@ -225,8 +225,9 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                     onProgress,
                 ) => {
                     const startTime = Date.now();
-                    const masterSeed =
-                        params.seed || Math.floor(Math.random() * 2147483647);
+                    const masterSeed = Number.isFinite(params.seed)
+                        ? params.seed
+                        : Math.floor(Math.random() * 2147483647);
 
                     const meetsTarget = (results) =>
                         MonteCarloEngine.meetsOptimizerTarget(
@@ -680,6 +681,14 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                     document.body.removeChild(a);
                     URL.revokeObjectURL(url);
                 };
+
+                // Monte Carlo result arrays span accumulation + retirement
+                // years (see analyzeResults), so charts need the full length.
+                const chartAccumulationYears =
+                    params.useAccumulation && params.accumulationYears > 0
+                        ? params.accumulationYears
+                        : 0;
+                const chartYears = params.years + chartAccumulationYears;
 
                 return (
                     <div className="min-h-screen flex flex-col lg:flex-row">
@@ -2262,7 +2271,7 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                                     </div>
                                     <input
                                         type="number"
-                                        value={params.seed || ""}
+                                        value={Number.isFinite(params.seed) ? params.seed : ""}
                                         onChange={(e) =>
                                             updateParam(
                                                 "seed",
@@ -2275,7 +2284,7 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                                         className="w-full bg-deep border border-gray-700 rounded-lg px-3 py-2 text-sm font-mono text-white focus:outline-none focus:border-accent input-focus transition-all"
                                     />
                                     <div className="text-xs text-gray-600 mt-1">
-                                        {params.seed
+                                        {Number.isFinite(params.seed)
                                             ? `Seed fixo: ${params.seed}`
                                             : "Seed aleatório a cada execução"}
                                     </div>
@@ -3141,7 +3150,10 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                                                 data={
                                                     results.portfolioPercentiles
                                                 }
-                                                years={params.years}
+                                                years={chartYears}
+                                                accumulationYears={
+                                                    chartAccumulationYears
+                                                }
                                             />
                                             <p className="text-xs text-gray-500 mt-3">
                                                 Faixas de probabilidade: P10
@@ -3167,7 +3179,10 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                                                 data={
                                                     results.withdrawalPercentiles
                                                 }
-                                                years={params.years}
+                                                years={chartYears}
+                                                accumulationYears={
+                                                    chartAccumulationYears
+                                                }
                                             />
                                             <p className="text-xs text-gray-500 mt-3">
                                                 Variação dos saques ao longo do
@@ -3197,7 +3212,10 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                                                 medians={
                                                     results.withdrawalMedians
                                                 }
-                                                years={params.years}
+                                                years={chartYears}
+                                                accumulationYears={
+                                                    chartAccumulationYears
+                                                }
                                                 minimumWithdrawal={
                                                     params.minimumWithdrawalBRL
                                                 }
@@ -3227,6 +3245,9 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                                                 (params.withdrawalRate / 100) *
                                                 params.initialFX
                                             }
+                                            accumulationYears={
+                                                chartAccumulationYears
+                                            }
                                         />
                                     </div>
 
@@ -3245,6 +3266,9 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                                             total={results.totalSimulations}
                                             failedByDepletion={
                                                 results.failedByDepletion
+                                            }
+                                            accumulationYears={
+                                                chartAccumulationYears
                                             }
                                         />
                                         <RulesExplanation
@@ -3307,7 +3331,10 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                                                         stressChartData={
                                                             results.stressChartData
                                                         }
-                                                        years={params.years}
+                                                        years={chartYears}
+                                                        accumulationYears={
+                                                            chartAccumulationYears
+                                                        }
                                                         minimumWithdrawal={
                                                             params.minimumWithdrawalBRL
                                                         }
