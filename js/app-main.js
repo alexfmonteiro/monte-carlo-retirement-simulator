@@ -4126,10 +4126,10 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                                                                             {formatCurrency(row.portfolioRealMedian)}
                                                                         </td>
                                                                         <td className="text-right py-2 px-3">
-                                                                            {row.swrConservative.toFixed(2)}%
+                                                                            {row.belowFloorConservative ? "< " : ""}{row.swrConservative.toFixed(2)}%
                                                                         </td>
                                                                         <td className="text-right py-2 px-3">
-                                                                            {row.swrAdjusted.toFixed(2)}%
+                                                                            {row.belowFloorAdjusted ? "< " : ""}{row.swrAdjusted.toFixed(2)}%
                                                                         </td>
                                                                         <td className="text-right py-2 px-3">
                                                                             {formatCurrency(row.monthlyConservative)}

@@ -15,7 +15,10 @@
  * a given survival metric meets targetRate, holding all other params
  * (including accumulationYears/useAccumulation) fixed.
  *
- * Mirrors the app's Die-With-Zero optimizer bisection pattern
+ * Bisects over [0.5%, 15%] down to opts.tolerance (default 0.1 pp): a
+ * coarse phase to 0.5 pp followed by a fine phase, all at probeIterations
+ * and the same seed, so every probe sees the same market paths.
+ * Follows the app's Die-With-Zero optimizer bisection pattern
  * (js/app-main.js findOptimalSWR), but is engine-only/synchronous-ish
  * (yields to the event loop between probes via a 0ms setTimeout so a UI
  * progress callback can repaint) and reads whichever survival metric the
@@ -26,8 +29,10 @@
  * @param {number} targetRate - survival % the search must meet
  * @param {(results:object)=>number} getSurvival - extracts the relevant
  *   survival rate (raw or mortality-adjusted) from analyzeResults() output
- * @param {object} opts - { probeIterations, confirmIterations, seed, onProbe }
- * @returns {{swr:number, results:object}}
+ * @param {object} opts - { probeIterations, confirmIterations, seed,
+ *   tolerance, onProbe }
+ * @returns {{swr:number, results:object, belowFloor:boolean}} belowFloor is
+ *   true when even the minimum SWR (0.5%) misses targetRate
  */
 MonteCarloEngine.prototype._bisectSWR = async function (
     baseParams,
@@ -38,6 +43,7 @@ MonteCarloEngine.prototype._bisectSWR = async function (
     const probeIterations = opts.probeIterations || 1200;
     const confirmIterations = opts.confirmIterations || 3500;
     const seed = Number.isFinite(opts.seed) ? opts.seed : Math.floor(Math.random() * 2147483647);
+    const tolerance = opts.tolerance || 0.1;
 
     const runWithSWR = (swr, iterations) => {
         const testParams = { ...baseParams, withdrawalRate: swr, seed };
@@ -50,28 +56,31 @@ MonteCarloEngine.prototype._bisectSWR = async function (
     let minSWR = 0.5;
     let maxSWR = 15.0;
     let bestSWR = minSWR;
-    let bestResults = runWithSWR(minSWR, probeIterations);
+    const belowFloor = !meets(runWithSWR(minSWR, probeIterations));
 
-    // Coarse phase: 0.5% tolerance
-    while (maxSWR - minSWR > 0.5) {
+    const probe = async () => {
         const midSWR = (minSWR + maxSWR) / 2;
         const results = runWithSWR(midSWR, probeIterations);
         if (meets(results)) {
             bestSWR = midSWR;
-            bestResults = results;
             minSWR = midSWR;
         } else {
             maxSWR = midSWR;
         }
         if (opts.onProbe) opts.onProbe({ swr: midSWR, survival: getSurvival(results) });
         await new Promise((r) => setTimeout(r, 0));
-    }
+    };
+
+    // Coarse phase: 0.5% tolerance
+    while (!belowFloor && maxSWR - minSWR > 0.5) await probe();
+    // Fine phase: narrow down to the configured tolerance
+    while (!belowFloor && maxSWR - minSWR > tolerance) await probe();
 
     // Confirmation run at the best SWR found, with more iterations, to
     // settle on a stable final estimate (per the plan: confirm best at
     // 3-4k iterations).
     const finalResults = runWithSWR(bestSWR, confirmIterations);
-    return { swr: bestSWR, results: finalResults };
+    return { swr: bestSWR, results: finalResults, belowFloor };
 };
 
 /**
@@ -84,8 +93,11 @@ MonteCarloEngine.prototype._bisectSWR = async function (
  * @param {object} options.criteria - { rawSurvival, adjustedSurvival } (%)
  * @param {number} options.probeIterations - iterations per bisection probe
  * @param {number} options.confirmIterations - iterations for confirm/target runs
+ * @param {number} options.tolerance - bisection tolerance in pp (default 0.1)
  * @param {(progress:object)=>void} options.onProgress - called after each age
- * @returns {Promise<{byAge: Array, criteria: object}>}
+ * @returns {Promise<{byAge: Array, criteria: object, seed: number}>} every
+ *   probe and target run shares one seed (common random numbers): the
+ *   engine's seed, i.e. params.seed when numeric, else a random draw
  */
 MonteCarloEngine.prototype.runRetirementAgeSweep = async function (options = {}) {
     const maxExtraYears = options.maxExtraYears ?? 10;
@@ -95,7 +107,9 @@ MonteCarloEngine.prototype.runRetirementAgeSweep = async function (options = {})
     };
     const probeIterations = options.probeIterations || 1200;
     const confirmIterations = options.confirmIterations || 3500;
+    const tolerance = options.tolerance;
     const onProgress = options.onProgress || (() => {});
+    const seed = this.getSeed();
 
     const currentAge = this.params.currentAge || 60;
     const targetSpendingBRL = this.params.targetSpendingBRL || 0;
@@ -120,13 +134,13 @@ MonteCarloEngine.prototype.runRetirementAgeSweep = async function (options = {})
             baseParams,
             criteria.rawSurvival,
             (r) => r.survivalRate,
-            { probeIterations, confirmIterations },
+            { probeIterations, confirmIterations, seed, tolerance },
         );
         const adjustedSearch = await this._bisectSWR(
             baseParams,
             criteria.adjustedSurvival,
             (r) => r.mortalityAdjustedSurvivalRate ?? r.survivalRate,
-            { probeIterations, confirmIterations },
+            { probeIterations, confirmIterations, seed, tolerance },
         );
 
         // (c) Median real portfolio at the retirement boundary (year index
@@ -151,12 +165,7 @@ MonteCarloEngine.prototype.runRetirementAgeSweep = async function (options = {})
             spendingMode: "target",
             targetSpendingBRL,
         };
-        const targetEngine = new MonteCarloEngine({
-            ...targetParams,
-            seed: Number.isFinite(this.params.seed)
-                ? this.params.seed
-                : Math.floor(Math.random() * 2147483647),
-        });
+        const targetEngine = new MonteCarloEngine({ ...targetParams, seed });
         const targetResults = targetEngine.runMonteCarlo(confirmIterations);
 
         const ageResult = {
@@ -164,6 +173,8 @@ MonteCarloEngine.prototype.runRetirementAgeSweep = async function (options = {})
             portfolioRealMedian,
             swrConservative: rawSearch.swr,
             swrAdjusted: adjustedSearch.swr,
+            belowFloorConservative: rawSearch.belowFloor,
+            belowFloorAdjusted: adjustedSearch.belowFloor,
             monthlyConservative,
             monthlyAdjusted,
             survivalAtTarget: targetResults.survivalRate,
@@ -177,5 +188,5 @@ MonteCarloEngine.prototype.runRetirementAgeSweep = async function (options = {})
         await new Promise((r) => setTimeout(r, 0));
     }
 
-    return { byAge, criteria };
+    return { byAge, criteria, seed };
 };
