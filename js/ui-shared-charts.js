@@ -51,8 +51,54 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                 );
             };
 
+            // X-axis label for timeline index i. With accumulation on, the
+            // first accumulationYears points are "Acum. k" and retirement
+            // restarts at "Ano 0"; with it off this is the plain "Ano i".
+            const timelineLabel = (i, accumulationYears = 0) =>
+                i < accumulationYears
+                    ? `Acum. ${i}`
+                    : `Ano ${i - accumulationYears}`;
+
+            const timelineLabels = (years, accumulationYears = 0) =>
+                Array.from({ length: years + 1 }, (_, i) =>
+                    timelineLabel(i, accumulationYears),
+                );
+
+            // Inline Chart.js plugin: dashed vertical line at the retirement
+            // boundary. Returns no plugins when accumulation is off.
+            const retirementMarkerPlugins = (accumulationYears = 0) =>
+                accumulationYears > 0
+                    ? [
+                          {
+                              id: "retirementMarker",
+                              afterDatasetsDraw(chart) {
+                                  const x =
+                                      chart.scales.x.getPixelForValue(
+                                          accumulationYears,
+                                      );
+                                  const { top, bottom } = chart.chartArea;
+                                  const c = chart.ctx;
+                                  c.save();
+                                  c.strokeStyle = "rgba(167, 139, 250, 0.8)";
+                                  c.lineWidth = 1;
+                                  c.setLineDash([4, 4]);
+                                  c.beginPath();
+                                  c.moveTo(x, top);
+                                  c.lineTo(x, bottom);
+                                  c.stroke();
+                                  c.setLineDash([]);
+                                  c.fillStyle = "#a78bfa";
+                                  c.font = "11px Outfit";
+                                  c.textAlign = "left";
+                                  c.fillText("Aposentadoria", x + 4, top + 12);
+                                  c.restore();
+                              },
+                          },
+                      ]
+                    : [];
+
             // Chart component for portfolio evolution
-            const PortfolioChart = ({ data, years }) => {
+            const PortfolioChart = ({ data, years, accumulationYears = 0 }) => {
                 const chartRef = useRef(null);
                 const canvasRef = useRef(null);
 
@@ -64,10 +110,7 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                     }
 
                     const ctx = canvasRef.current.getContext("2d");
-                    const labels = Array.from(
-                        { length: years + 1 },
-                        (_, i) => `Ano ${i}`,
-                    );
+                    const labels = timelineLabels(years, accumulationYears);
 
                     chartRef.current = new Chart(ctx, {
                         type: "line",
@@ -183,6 +226,7 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                                 },
                             },
                         },
+                        plugins: retirementMarkerPlugins(accumulationYears),
                     });
 
                     return () => {
@@ -190,7 +234,7 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                             chartRef.current.destroy();
                         }
                     };
-                }, [data, years]);
+                }, [data, years, accumulationYears]);
 
                 return (
                     <div className="chart-container">
