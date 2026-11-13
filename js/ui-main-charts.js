@@ -1,7 +1,7 @@
 const { useState, useEffect, useRef, useCallback, useMemo } = React;
 
             // Chart component for withdrawals
-            const WithdrawalChart = ({ data, years }) => {
+            const WithdrawalChart = ({ data, years, accumulationYears = 0 }) => {
                 const chartRef = useRef(null);
                 const canvasRef = useRef(null);
 
@@ -13,10 +13,7 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                     }
 
                     const ctx = canvasRef.current.getContext("2d");
-                    const labels = Array.from(
-                        { length: years + 1 },
-                        (_, i) => `Ano ${i}`,
-                    );
+                    const labels = timelineLabels(years, accumulationYears);
 
                     chartRef.current = new Chart(ctx, {
                         type: "line",
@@ -110,6 +107,7 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                                 },
                             },
                         },
+                        plugins: retirementMarkerPlugins(accumulationYears),
                     });
 
                     return () => {
@@ -117,7 +115,7 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                             chartRef.current.destroy();
                         }
                     };
-                }, [data, years]);
+                }, [data, years, accumulationYears]);
 
                 return (
                     <div className="chart-container">
@@ -131,6 +129,7 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                 means,
                 medians,
                 years,
+                accumulationYears = 0,
                 minimumWithdrawal,
                 minimumWithdrawalAdjusted,
                 useMinimum,
@@ -148,10 +147,7 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                     }
 
                     const ctx = canvasRef.current.getContext("2d");
-                    const labels = Array.from(
-                        { length: years + 1 },
-                        (_, i) => `Ano ${i}`,
-                    );
+                    const labels = timelineLabels(years, accumulationYears);
 
                     const datasets = [
                         {
@@ -265,6 +261,7 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                                 },
                             },
                         },
+                        plugins: retirementMarkerPlugins(accumulationYears),
                     });
 
                     return () => {
@@ -272,7 +269,7 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                             chartRef.current.destroy();
                         }
                     };
-                }, [means, medians, years, minimumWithdrawal, minimumWithdrawalAdjusted, useMinimum, inssIncomeMeans, useINSS]);
+                }, [means, medians, years, accumulationYears, minimumWithdrawal, minimumWithdrawalAdjusted, useMinimum, inssIncomeMeans, useINSS]);
 
                 return (
                     <div className="chart-container">
