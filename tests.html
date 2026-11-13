@@ -2228,15 +2228,80 @@
                     assert(Number.isFinite(row.portfolioRealMedian), `portfolioRealMedian not finite at age ${row.age}`);
                 }
 
-                // Statistical tolerance: allow a small dip due to Monte Carlo
-                // noise at low iteration counts, but the trend should not
-                // reverse sharply.
+                // All ages share one seed (common random numbers), so only a
+                // dip within the 0.1 pp bisection tolerance is allowed.
                 for (let i = 1; i < byAge.length; i++) {
                     assert(
-                        byAge[i].swrConservative >= byAge[i - 1].swrConservative - 1.0,
+                        byAge[i].swrConservative >= byAge[i - 1].swrConservative - 0.1,
                         `SWR at age ${byAge[i].age} (${byAge[i].swrConservative}) dropped too much vs age ${byAge[i - 1].age} (${byAge[i - 1].swrConservative})`
                     );
                 }
+            });
+        });
+
+        tf.describe('Retirement-Age Sweep: Seeds and Bisection', () => {
+            const sweepParams = () => ({
+                ...getDefaultParams(),
+                seed: 7,
+                currentAge: 60,
+                targetSpendingBRL: 120000,
+                monthlyContributionBRL: 6000,
+                contributionSplitUSD: 80,
+            });
+
+            tf.it('two sweeps with the same numeric seed return identical byAge', async () => {
+                const opts = { maxExtraYears: 1, probeIterations: 80, confirmIterations: 100 };
+                const a = await new MonteCarloEngine(sweepParams()).runRetirementAgeSweep(opts);
+                const b = await new MonteCarloEngine(sweepParams()).runRetirementAgeSweep(opts);
+                assertEqual(a.seed, 7, 'sweep should report the numeric params.seed');
+                assertEqual(JSON.stringify(a.byAge), JSON.stringify(b.byAge), 'byAge differs between same-seed sweeps');
+            });
+
+            tf.it('every probe and target run in a sweep uses the same seed', async () => {
+                const engine = new MonteCarloEngine({ ...sweepParams(), seed: null });
+                const seeds = new Set();
+                const original = MonteCarloEngine.prototype.runMonteCarlo;
+                MonteCarloEngine.prototype.runMonteCarlo = function (iterations) {
+                    seeds.add(this.getSeed());
+                    return original.call(this, iterations);
+                };
+                try {
+                    const sweep = await engine.runRetirementAgeSweep({ maxExtraYears: 1, probeIterations: 40, confirmIterations: 40 });
+                    assertEqual(seeds.size, 1, `expected one seed across the sweep, got ${seeds.size}`);
+                    assert(seeds.has(sweep.seed), 'sweep.seed should be the seed used by every run');
+                } finally {
+                    MonteCarloEngine.prototype.runMonteCarlo = original;
+                }
+            });
+
+            tf.it('bisection resolves to the configured tolerance', async () => {
+                const engine = new MonteCarloEngine(sweepParams());
+                const base = { ...sweepParams(), useAccumulation: true, accumulationYears: 0, years: 40, spendingMode: 'rate' };
+                for (const tolerance of [0.1, 0.25]) {
+                    const probes = [];
+                    const { swr, belowFloor } = await engine._bisectSWR(base, 85, (r) => r.survivalRate, {
+                        probeIterations: 80, confirmIterations: 80, seed: 3, tolerance,
+                        onProbe: (p) => probes.push(p),
+                    });
+                    assert(!belowFloor, 'minimum SWR should meet an 85% target here');
+                    const passing = probes.filter((p) => p.survival >= 85).map((p) => p.swr);
+                    const failing = probes.filter((p) => p.survival < 85).map((p) => p.swr);
+                    const lo = Math.max(0.5, ...passing);
+                    const hi = Math.min(15, ...failing);
+                    assertEqual(swr, lo, 'reported SWR should be the highest passing probe');
+                    assertLessThan(hi - lo, tolerance + 1e-9, `final interval ${hi - lo} exceeds tolerance ${tolerance}`);
+                    assertGreaterThan(hi - lo, tolerance / 2 - 1e-9, `bisection overshot tolerance ${tolerance}`);
+                }
+            });
+
+            tf.it('flags belowFloor when even the minimum SWR misses the target', async () => {
+                const engine = new MonteCarloEngine(sweepParams());
+                const base = { ...sweepParams(), useAccumulation: true, accumulationYears: 0, years: 40, spendingMode: 'rate' };
+                const { swr, belowFloor } = await engine._bisectSWR(base, 101, (r) => r.survivalRate, {
+                    probeIterations: 40, confirmIterations: 40, seed: 3,
+                });
+                assert(belowFloor, 'belowFloor should be true for an unreachable target');
+                assertEqual(swr, 0.5, 'SWR should fall back to the 0.5% floor');
             });
         });
 
