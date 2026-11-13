@@ -1162,6 +1162,24 @@
                     assertEqual(v1, v2, `Normal values should be identical at step ${i}`);
                 }
             });
+
+            tf.it('REGRESSION: null seed should draw a random numeric seed per engine', () => {
+                const engine1 = new MonteCarloEngine({ ...getDefaultParams(), seed: null });
+                const engine2 = new MonteCarloEngine({ ...getDefaultParams(), seed: null });
+                assert(Number.isFinite(engine1.getSeed()), `getSeed() should be a number, got ${engine1.getSeed()}`);
+                assert(Number.isFinite(engine2.getSeed()), `getSeed() should be a number, got ${engine2.getSeed()}`);
+                assert(engine1.getSeed() !== engine2.getSeed(), 'Two null-seed engines should get different seeds');
+                assert(engine1.random() !== engine2.random(), 'Two null-seed engines should produce different draws');
+            });
+
+            tf.it('REGRESSION: seed 0 should be honored and reproducible', () => {
+                const engine1 = new MonteCarloEngine({ ...getDefaultParams(), seed: 0 });
+                const engine2 = new MonteCarloEngine({ ...getDefaultParams(), seed: 0 });
+                assertEqual(engine1.getSeed(), 0, 'getSeed() should return 0');
+                for (let i = 0; i < 20; i++) {
+                    assertEqual(engine1.random(), engine2.random(), `Seed-0 values should be identical at step ${i}`);
+                }
+            });
         });
 
         // ============================================

@@ -2,10 +2,9 @@ class MonteCarloEngine {
     constructor(params) {
         this.params = params;
         // Initialize RNG: use provided seed or generate random seed
-        const seed =
-            params.seed !== undefined
-                ? params.seed
-                : Math.floor(Math.random() * 2147483647);
+        const seed = Number.isFinite(params.seed)
+            ? params.seed
+            : Math.floor(Math.random() * 2147483647);
         this.rng = new SeededRNG(seed);
         this.initialSeed = seed;
     }
