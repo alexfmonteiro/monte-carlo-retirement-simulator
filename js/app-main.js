@@ -209,11 +209,11 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
 
                 // Helper function to run Monte Carlo with specific SWR
                 const runMonteCarloWithSWR = (swr, iterations, masterSeed) => {
-                    const testParams = {
-                        ...params,
-                        withdrawalRate: swr,
-                        seed: masterSeed,
-                    };
+                    const testParams = MonteCarloEngine.optimizerParams(
+                        params,
+                        swr,
+                        masterSeed,
+                    );
                     const engine = new MonteCarloEngine(testParams);
                     return engine.runMonteCarlo(iterations);
                 };
@@ -228,20 +228,12 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                     const masterSeed =
                         params.seed || Math.floor(Math.random() * 2147483647);
 
-                    // Success = survival target met AND (if a Die-With-Zero
-                    // target is set) the median final balance, deflated to
-                    // today's BRL, still meets the target.
-                    const meetsTarget = (results) => {
-                        if (results.survivalRate < targetRate) return false;
-                        if (params.targetEndBalance > 0) {
-                            const finalIpca =
-                                results.meanCumulativeIpca?.[params.years] ?? 1;
-                            const medianFinalReal =
-                                results.medianFinalPortfolio / finalIpca;
-                            return medianFinalReal >= params.targetEndBalance;
-                        }
-                        return true;
-                    };
+                    const meetsTarget = (results) =>
+                        MonteCarloEngine.meetsOptimizerTarget(
+                            results,
+                            params,
+                            targetRate,
+                        );
 
                     let minSWR = 0.5;
                     let maxSWR = 15.0;
@@ -362,20 +354,19 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                         : "pure_iid";
 
                     const computeTimeMs = Date.now() - startTime;
+                    const annualWithdrawalBRL =
+                        MonteCarloEngine.optimizerAnnualWithdrawalBRL(
+                            finalResults,
+                            params,
+                            bestSWR,
+                        );
 
                     return {
                         optimalSWR: bestSWR,
                         survivalRate: finalResults.survivalRate,
                         medianEndBalance: finalResults.medianFinalPortfolio,
-                        monthlyWithdrawalBRL:
-                            ((params.initialPortfolioUSD * params.initialFX +
-                                (params.initialPortfolioBRL || 0)) *
-                                (bestSWR / 100)) /
-                            12,
-                        annualWithdrawalBRL:
-                            (params.initialPortfolioUSD * params.initialFX +
-                                (params.initialPortfolioBRL || 0)) *
-                            (bestSWR / 100),
+                        monthlyWithdrawalBRL: annualWithdrawalBRL / 12,
+                        annualWithdrawalBRL,
                         confidenceInterval: [
                             Math.max(0.5, bestSWR - tolerance),
                             Math.min(15, bestSWR + tolerance),

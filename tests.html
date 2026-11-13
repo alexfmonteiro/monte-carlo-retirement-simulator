@@ -2040,6 +2040,74 @@
             });
         });
 
+        tf.describe('Optimizer: Engine Helpers', () => {
+            const helperParams = {
+                ...getDefaultParams(),
+                years: 20,
+                useAccumulation: true,
+                accumulationYears: 5,
+                monthlyContributionBRL: 5000,
+                contributionSplitUSD: 80,
+                targetSpendingBRL: 150000,
+            };
+            const probe = (params, swr) =>
+                new MonteCarloEngine(MonteCarloEngine.optimizerParams(params, swr, 42)).runMonteCarlo(100);
+
+            tf.it('optimizerParams forces rate mode so target-mode probes match rate-mode probes', () => {
+                for (const swr of [3, 8]) {
+                    const target = probe({ ...helperParams, spendingMode: 'target' }, swr);
+                    const rate = probe({ ...helperParams, spendingMode: 'rate' }, swr);
+                    assertEqual(target.survivalRate, rate.survivalRate,
+                        `SWR ${swr}%: target-mode survival ${target.survivalRate} != rate-mode ${rate.survivalRate}`);
+                    assertEqual(target.medianFinalPortfolio, rate.medianFinalPortfolio,
+                        `SWR ${swr}%: target-mode median final differs from rate mode`);
+                }
+                const low = probe({ ...helperParams, spendingMode: 'target' }, 2);
+                const high = probe({ ...helperParams, spendingMode: 'target' }, 12);
+                assert(low.medianFinalPortfolio > high.medianFinalPortfolio,
+                    'target-mode probes must respond to withdrawalRate');
+            });
+
+            tf.it('meetsOptimizerTarget deflates by the final-year IPCA factor', () => {
+                // accumulationYears + years + 1 entries; [years] is a mid-path factor
+                const params = { years: 2, useAccumulation: true, accumulationYears: 2, targetEndBalance: 100 };
+                const results = { survivalRate: 95, medianFinalPortfolio: 300, meanCumulativeIpca: [1, 1.2, 1.5, 2, 4] };
+                // 300 / 4 = 75 < 100; the mid-path factor (1.5) would give 200 and pass
+                assert(!MonteCarloEngine.meetsOptimizerTarget(results, params, 90),
+                    'should fail: real final balance is 75 against a target of 100');
+                assert(MonteCarloEngine.meetsOptimizerTarget({ ...results, medianFinalPortfolio: 400 }, params, 90),
+                    'should pass: real final balance is 100 against a target of 100');
+                assert(!MonteCarloEngine.meetsOptimizerTarget({ ...results, survivalRate: 80 }, params, 90),
+                    'should fail when survival is below target');
+            });
+
+            tf.it('meetsOptimizerTarget reads the last IPCA entry of a real accumulation run', () => {
+                const results = probe({ ...helperParams, useIPCAModel: false, inflation: 4 }, 4);
+                const n = helperParams.accumulationYears + helperParams.years;
+                assertEqual(results.meanCumulativeIpca.length, n + 1, 'IPCA array covers accumulation + retirement');
+                const finalIpca = results.meanCumulativeIpca[n];
+                assertAlmostEqual(finalIpca, Math.pow(1.04, n), 1e-6, `final IPCA factor was ${finalIpca}`);
+                const realFinal = results.medianFinalPortfolio / finalIpca;
+                const params = { ...helperParams, targetEndBalance: realFinal * 1.01 };
+                assert(!MonteCarloEngine.meetsOptimizerTarget(results, params, 0),
+                    'target just above the real final balance must fail');
+                params.targetEndBalance = realFinal * 0.99;
+                assert(MonteCarloEngine.meetsOptimizerTarget(results, params, 0),
+                    'target just below the real final balance must pass');
+            });
+
+            tf.it('optimizerAnnualWithdrawalBRL uses the boundary portfolio when accumulating', () => {
+                const results = probe(helperParams, 4);
+                const n = helperParams.accumulationYears;
+                const expected = results.portfolioPercentiles.p50[n] / results.meanCumulativeIpca[n] * 0.04;
+                assertAlmostEqual(MonteCarloEngine.optimizerAnnualWithdrawalBRL(results, helperParams, 4), expected, 1e-6);
+
+                const noAcc = { ...helperParams, useAccumulation: false };
+                const initialBRL = noAcc.initialPortfolioUSD * noAcc.initialFX + (noAcc.initialPortfolioBRL || 0);
+                assertAlmostEqual(MonteCarloEngine.optimizerAnnualWithdrawalBRL(results, noAcc, 4), initialBRL * 0.04, 1e-6);
+            });
+        });
+
         tf.describe('Retirement-Age Sweep: Monotonicity', () => {
             tf.it('sustainable SWR is non-decreasing (within tolerance) as extra years worked increases', async () => {
                 const params = {

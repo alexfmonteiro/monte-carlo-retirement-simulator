@@ -1600,4 +1600,47 @@ class MonteCarloEngine {
             lifeExpectancyAtStart,
         };
     }
+
+    // ============================================
+    // DIE WITH ZERO OPTIMIZER HELPERS
+    // ============================================
+
+    // Params for one optimizer probe. Forces rate mode: in target mode
+    // runSimulation() ignores withdrawalRate, so every probe would match.
+    static optimizerParams(params, swr, seed) {
+        return { ...params, spendingMode: "rate", withdrawalRate: swr, seed };
+    }
+
+    // Survival target met AND (if a Die-With-Zero target is set) the median
+    // final balance, deflated to today's BRL by the final-year cumulative
+    // IPCA, still meets the target. The IPCA array covers accumulation +
+    // retirement years, so the final factor is its last element.
+    static meetsOptimizerTarget(results, params, targetRate) {
+        if (results.survivalRate < targetRate) return false;
+        if (params.targetEndBalance > 0) {
+            const ipca = results.meanCumulativeIpca;
+            const finalIpca = ipca?.length ? ipca[ipca.length - 1] : 1;
+            const medianFinalReal = results.medianFinalPortfolio / finalIpca;
+            return medianFinalReal >= params.targetEndBalance;
+        }
+        return true;
+    }
+
+    // Annual first withdrawal (today's BRL) implied by the optimal SWR.
+    // With accumulation on, the rate applies to the retirement-boundary
+    // portfolio: the median boundary portfolio deflated to today's BRL.
+    static optimizerAnnualWithdrawalBRL(results, params, swr) {
+        const accYears =
+            params.useAccumulation && params.accumulationYears > 0
+                ? params.accumulationYears
+                : 0;
+        let portfolioBRL =
+            params.initialPortfolioUSD * params.initialFX +
+            (params.initialPortfolioBRL || 0);
+        if (accYears > 0) {
+            const ipca = results.meanCumulativeIpca?.[accYears] ?? 1;
+            portfolioBRL = results.portfolioPercentiles.p50[accYears] / ipca;
+        }
+        return portfolioBRL * (swr / 100);
+    }
 }
