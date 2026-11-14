@@ -14,15 +14,13 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                     worstWithdrawal,
                 } = results;
 
-                const years = results.withdrawalMeans.length - 1;
+                // Periods cover the retirement years only (analyzeResults
+                // splits them after any accumulation years).
+                const years =
+                    results.withdrawalMeans.length - 1 - accumulationYears;
                 const earlyYears = Math.floor(years / 3);
                 const midYears = Math.floor((2 * years) / 3);
-                // Periods are on the total timeline; with accumulation on,
-                // label each end so the retirement boundary stays clear.
-                const periodLabel = (from, to) =>
-                    accumulationYears > 0
-                        ? `${timelineLabel(from, accumulationYears)} – ${timelineLabel(to, accumulationYears)}`
-                        : `Anos ${from}-${to}`;
+                const periodLabel = (from, to) => `Anos ${from}-${to}`;
 
                 return (
                     <div className="bg-surface rounded-xl p-4 border border-gray-800">

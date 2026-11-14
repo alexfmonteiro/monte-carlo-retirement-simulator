@@ -88,10 +88,15 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                     accumulationYears: 0, // years of work/saving before withdrawals start
                     monthlyContributionBRL: 10000, // today's BRL; indexed by simulated IPCA each year
                     contributionSplitUSD: 80, // % of each contribution buying USD assets (rest → BRL sleeve)
+                    iofContribution: 0, // % IOF-câmbio on the USD part of each contribution
                     contributionGrowthReal: 0, // optional % a.a. real growth of savings capacity
                     // Spending-target mode (alternative to rate mode)
                     spendingMode: "rate", // 'rate' (SWR % as today) | 'target' (fixed real spending)
                     targetSpendingBRL: 180000, // today's BRL per year; indexed by simulated IPCA to retirement date
+                    // Projeção sweep (retirement-age) criteria and range
+                    projectionRawSurvival: 83, // % raw survival for the conservative SWR
+                    projectionAdjustedSurvival: 96.5, // % mortality-adjusted survival for the adjusted SWR
+                    projectionMaxExtraYears: 10, // sweep 0..N extra years worked
                     // Optional local overrides (js/local-profile.js, gitignored):
                     // lets a user keep personal figures out of the public repo
                     ...(typeof LOCAL_PROFILE !== "undefined" ? LOCAL_PROFILE : {}),
@@ -165,15 +170,26 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                 // RETIREMENT-AGE PROJECTION SWEEP ("Projeção" tab)
                 // ============================================
                 const runProjectionSweep = async () => {
+                    const sweepOptions =
+                        MonteCarloEngine.projectionSweepOptions(params);
                     setIsRunningProjection(true);
                     setProjectionResults(null);
                     setShtfResult(null);
-                    setProjectionProgress({ n: 0, maxExtraYears: 10 });
+                    setProjectionProgress({
+                        n: 0,
+                        maxExtraYears: sweepOptions.maxExtraYears,
+                    });
                     setActiveResultsTab("projection");
 
                     // Let the UI paint the loading state before the first
                     // (synchronous, potentially heavy) simulation batch runs.
                     await new Promise((r) => setTimeout(r, 50));
+
+                    // One seed for the SHTF run and the sweep, so a run
+                    // without a numeric params.seed is still reproducible
+                    // from the seed the sweep reports.
+                    const engine = new MonteCarloEngine(params);
+                    const seed = engine.getSeed();
 
                     // "Se parar hoje" (SHTF) baseline: zero extra years
                     // worked, spending at the user's actual target — the
@@ -188,6 +204,7 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                         accumulationYears: 0,
                         years: horizonYears,
                         spendingMode: "target",
+                        seed,
                     };
                     const shtfEngine = new MonteCarloEngine(shtfParams);
                     const shtfRun = shtfEngine.runMonteCarlo(3500);
@@ -198,9 +215,8 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                             shtfRun.survivalRate,
                     });
 
-                    const engine = new MonteCarloEngine(params);
                     const sweep = await engine.runRetirementAgeSweep({
-                        maxExtraYears: 10,
+                        ...sweepOptions,
                         onProgress: (p) => setProjectionProgress(p),
                     });
 
@@ -419,6 +435,9 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                             "withdrawalRate",
                             parseFloat(result.optimalSWR.toFixed(2)),
                         );
+                        // The optimizer searches in rate mode; target mode
+                        // would ignore the optimal withdrawalRate on re-run
+                        updateParam("spendingMode", "rate");
                     } catch (error) {
                         console.error("Optimization error:", error);
                         setOptimizationProgress({
@@ -905,6 +924,70 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                                         </div>
                                     </div>
                                 )}
+                                {params.objectiveMode === "preservation" && (
+                                    <>
+                                        {/* Spending Mode */}
+                                        <div className="mb-3">
+                                            <label className="flex items-center text-xs text-gray-400 mb-2 font-medium uppercase tracking-wide">
+                                                Modo de Definição do Gasto na
+                                                Aposentadoria
+                                                <Tooltip text="Como o primeiro saque anual (ao se aposentar) é calculado. 'Taxa de Retirada' usa o SWR (%) definido acima sobre o patrimônio na data de aposentadoria (hoje, ou ao fim da Fase de Acumulação). 'Gasto Alvo' usa um valor fixo em BRL de hoje (corrigido pelo IPCA acumulado até a aposentadoria, se houver Fase de Acumulação), independente do tamanho do portfólio — útil para responder 'preciso de quanto para bancar R$ X/ano?'." />
+                                            </label>
+                                            <div className="flex gap-2 p-1 bg-midnight rounded-lg">
+                                                <button
+                                                    onClick={() =>
+                                                        updateParam(
+                                                            "spendingMode",
+                                                            "rate",
+                                                        )
+                                                    }
+                                                    className={`flex-1 py-1.5 px-3 rounded-md text-xs font-medium transition-all ${
+                                                        params.spendingMode ===
+                                                        "rate"
+                                                            ? "bg-accent text-white"
+                                                            : "text-gray-400 hover:text-white hover:bg-surface"
+                                                    }`}
+                                                >
+                                                    Taxa de Retirada
+                                                </button>
+                                                <button
+                                                    onClick={() =>
+                                                        updateParam(
+                                                            "spendingMode",
+                                                            "target",
+                                                        )
+                                                    }
+                                                    className={`flex-1 py-1.5 px-3 rounded-md text-xs font-medium transition-all ${
+                                                        params.spendingMode ===
+                                                        "target"
+                                                            ? "bg-accent text-white"
+                                                            : "text-gray-400 hover:text-white hover:bg-surface"
+                                                    }`}
+                                                >
+                                                    Gasto Alvo
+                                                </button>
+                                            </div>
+                                        </div>
+                                        {params.spendingMode === "target" && (
+                                            <BRLInputWithUSD
+                                                label="Gasto Alvo Anual"
+                                                valueBRL={
+                                                    params.targetSpendingBRL
+                                                }
+                                                onChange={(v) =>
+                                                    updateParam(
+                                                        "targetSpendingBRL",
+                                                        v,
+                                                    )
+                                                }
+                                                fx={params.initialFX}
+                                                min={0}
+                                                step={10000}
+                                                tooltip="Gasto anual desejado na aposentadoria, em BRL de hoje. Este valor é corrigido pelo IPCA acumulado simulado até a data de aposentadoria para virar o primeiro saque real do plano. A taxa de retirada implícita (gasto ÷ patrimônio na aposentadoria) é calculada automaticamente e usada como base para as regras de Guyton-Klinger."
+                                            />
+                                        )}
+                                    </>
+                                )}
                             </div>
 
                             {/* Accumulation Phase Section */}
@@ -973,6 +1056,23 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                                             step={5}
                                             tooltip="Percentual de cada aporte mensal destinado à parcela dolarizada (ETFs internacionais), convertido ao câmbio do ano corrente da simulação. O restante vai para a parcela em BRL (renda fixa brasileira). Como a conversão usa o câmbio simulado de cada ano, comprar dólares fica mais caro quando o real está fraco — efeito realista do 'dollar cost averaging' cambial."
                                         />
+                                        {params.sidebarMode === "advanced" && (
+                                            <Input
+                                                label="IOF na Remessa do Aporte"
+                                                value={params.iofContribution}
+                                                onChange={(v) =>
+                                                    updateParam(
+                                                        "iofContribution",
+                                                        v,
+                                                    )
+                                                }
+                                                unit="%"
+                                                min={0}
+                                                max={5}
+                                                step={0.1}
+                                                tooltip="IOF-câmbio cobrado sobre a parte em USD de cada aporte, antes da conversão. Desde o Decreto 12.499/2025, o art. 15-B do Decreto 6.306/2007 prevê 1,1% na remessa com finalidade de investimento (inciso XXI-A) e 3,5% nas demais transferências ao exterior (inciso XXIV). A alíquota da sua remessa depende de como a corretora ou o banco classifica a operação. Zero desliga o custo. Não afeta os saques."
+                                            />
+                                        )}
                                         <Input
                                             label="Crescimento Real dos Aportes"
                                             value={
@@ -991,67 +1091,63 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                                             tooltip="Crescimento real (acima do IPCA) da capacidade de poupança ano a ano — por exemplo, promoções ou aumentos de renda ao longo da carreira. Zero significa que o aporte mensal acompanha apenas a inflação, sem crescer em termos reais."
                                         />
 
-                                        {/* Spending Mode */}
-                                        <div className="mt-4 mb-2">
-                                            <label className="flex items-center text-xs text-gray-400 mb-2 font-medium uppercase tracking-wide">
-                                                Modo de Definição do Gasto na
-                                                Aposentadoria
-                                                <Tooltip text="Como o primeiro saque anual (ao se aposentar) é calculado. 'Taxa de Retirada' usa o SWR (%) definido acima sobre o patrimônio acumulado até a data de aposentadoria. 'Gasto Alvo' usa um valor fixo em BRL de hoje (corrigido pelo IPCA acumulado até a aposentadoria), independente do tamanho do portfólio — útil para responder 'preciso de quanto para bancar R$ X/ano?'." />
-                                            </label>
-                                            <div className="flex gap-2 p-1 bg-midnight rounded-lg">
-                                                <button
-                                                    onClick={() =>
-                                                        updateParam(
-                                                            "spendingMode",
-                                                            "rate",
-                                                        )
-                                                    }
-                                                    className={`flex-1 py-1.5 px-3 rounded-md text-xs font-medium transition-all ${
-                                                        params.spendingMode ===
-                                                        "rate"
-                                                            ? "bg-accent text-white"
-                                                            : "text-gray-400 hover:text-white hover:bg-surface"
-                                                    }`}
-                                                >
-                                                    Taxa de Retirada
-                                                </button>
-                                                <button
-                                                    onClick={() =>
-                                                        updateParam(
-                                                            "spendingMode",
-                                                            "target",
-                                                        )
-                                                    }
-                                                    className={`flex-1 py-1.5 px-3 rounded-md text-xs font-medium transition-all ${
-                                                        params.spendingMode ===
-                                                        "target"
-                                                            ? "bg-accent text-white"
-                                                            : "text-gray-400 hover:text-white hover:bg-surface"
-                                                    }`}
-                                                >
-                                                    Gasto Alvo
-                                                </button>
-                                            </div>
-                                        </div>
-                                        {params.spendingMode === "target" && (
-                                            <BRLInputWithUSD
-                                                label="Gasto Alvo Anual"
-                                                valueBRL={
-                                                    params.targetSpendingBRL
-                                                }
-                                                onChange={(v) =>
-                                                    updateParam(
-                                                        "targetSpendingBRL",
-                                                        v,
-                                                    )
-                                                }
-                                                fx={params.initialFX}
-                                                min={0}
-                                                step={10000}
-                                                tooltip="Gasto anual desejado na aposentadoria, em BRL de hoje. Este valor é corrigido pelo IPCA acumulado simulado até a data de aposentadoria para virar o primeiro saque real do plano. A taxa de retirada implícita (gasto ÷ patrimônio na aposentadoria) é calculada automaticamente e usada como base para as regras de Guyton-Klinger."
-                                            />
-                                        )}
                                     </>
+                                )}
+                                {params.sidebarMode === "advanced" && (
+                                    <div className="mt-4 pt-3 border-t border-purple-500/20">
+                                        <div className="text-xs text-gray-400 mb-2 font-medium uppercase tracking-wide">
+                                            Critérios da Aba Projeção
+                                        </div>
+                                        <Input
+                                            label="Sobrevivência Bruta (SWR Conservador)"
+                                            value={params.projectionRawSurvival}
+                                            onChange={(v) =>
+                                                updateParam(
+                                                    "projectionRawSurvival",
+                                                    v,
+                                                )
+                                            }
+                                            unit="%"
+                                            min={50}
+                                            max={99.9}
+                                            step={0.5}
+                                            tooltip="Percentual mínimo de simulações em que o dinheiro dura até os 100 anos, contando todas as falhas igualmente (sobrevivência bruta). A aba Projeção busca, para cada idade de aposentadoria, a maior taxa de retirada que atinge este percentual — o 'SWR conservador'. Quanto maior o valor, mais seguro e menor o gasto sustentável. Aceita de 50% a 99,9%."
+                                        />
+                                        <Input
+                                            label="Sobrevivência Ajustada (SWR Ajustado)"
+                                            value={
+                                                params.projectionAdjustedSurvival
+                                            }
+                                            onChange={(v) =>
+                                                updateParam(
+                                                    "projectionAdjustedSurvival",
+                                                    v,
+                                                )
+                                            }
+                                            unit="%"
+                                            min={50}
+                                            max={99.9}
+                                            step={0.5}
+                                            tooltip="Mesmo critério, mas usando a sobrevivência ajustada por mortalidade (tábua IBGE): uma falha aos 95 anos pesa menos que uma falha aos 65, porque há boa chance de você não estar vivo para vê-la. Por isso a sobrevivência ajustada é sempre maior que a bruta, e o alvo costuma ser mais alto (ex: 96,5% ajustada vs. 83% bruta). Aceita de 50% a 99,9%."
+                                        />
+                                        <Input
+                                            label="Anos Extra Avaliados"
+                                            value={
+                                                params.projectionMaxExtraYears
+                                            }
+                                            onChange={(v) =>
+                                                updateParam(
+                                                    "projectionMaxExtraYears",
+                                                    v,
+                                                )
+                                            }
+                                            unit="anos"
+                                            min={1}
+                                            max={20}
+                                            step={1}
+                                            tooltip="Até quantos anos extra de trabalho a aba Projeção avalia (de 0 até este valor, uma linha por idade). Cada ano extra roda uma nova bateria de simulações, então valores maiores demoram mais. Aceita de 1 a 20 anos."
+                                        />
+                                    </div>
                                 )}
                             </div>
 
@@ -1934,7 +2030,7 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                                                         min={0}
                                                         max={30}
                                                         step={1}
-                                                        tooltip="Alíquota de IR sobre GANHOS de capital em ETFs irlandeses (não sobre principal). ETFs irlandeses (UCITS) são tributados a 15% no Brasil sobre o ganho na venda. O modelo estima que a proporção de ganho aumenta ~6% ao ano até 60% máximo. Ex: ano 10 → ~60% do saque é ganho → IR = saque × 60% × 15%."
+                                                        tooltip="Alíquota de IR sobre GANHOS de capital em ETFs irlandeses (não sobre principal). ETFs irlandeses (UCITS) são tributados a 15% no Brasil sobre o ganho na venda (Lei 14.754/2023, art. 2º). Todo saque é tributado: desde 2024 a isenção de R$ 35 mil/mês não vale para aplicações no exterior (Solução de Consulta Cosit 130/2026). A lei mede o ganho em reais, incluindo a variação cambial sobre o principal (art. 3º, § 2º), mas o modelo não guarda custo de aquisição: estima que a proporção de ganho aumenta ~6% ao ano até 60% máximo. Ex: ano 10 → ~60% do saque é ganho → IR = saque × 60% × 15%. Não modelados: tributação mínima de altas rendas e retenção sobre dividendos (Lei 15.270/2025) e ITCMD (LC 227/2026). Revisão: nov/2026. Detalhes no README."
                                                     />
                                                     <Input
                                                         label="IR Renda Fixa BR"
@@ -2820,14 +2916,34 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                                             </button>
                                         )}
                                         {activeResultsTab === "projection" && projectionResults && (
-                                            <button
-                                                onClick={runProjectionSweep}
-                                                disabled={isRunningProjection}
-                                                className="text-xs text-gray-400 hover:text-emerald-400 transition-colors flex items-center gap-1"
-                                            >
-                                                <Icon name="RefreshCw" size={12} />
-                                                Recalcular
-                                            </button>
+                                            <div className="flex items-center gap-3 text-xs">
+                                                <span className="text-gray-400">
+                                                    Seed:{" "}
+                                                    <span className="font-mono text-info">
+                                                        {projectionResults.seed}
+                                                    </span>
+                                                </span>
+                                                <button
+                                                    onClick={() => {
+                                                        navigator.clipboard.writeText(
+                                                            projectionResults.seed.toString(),
+                                                        );
+                                                    }}
+                                                    className="text-gray-500 hover:text-emerald-400 transition-colors flex items-center gap-1"
+                                                    title="Copiar seed"
+                                                >
+                                                    <Icon name="Copy" size={12} />
+                                                    Copiar
+                                                </button>
+                                                <button
+                                                    onClick={runProjectionSweep}
+                                                    disabled={isRunningProjection}
+                                                    className="text-gray-400 hover:text-emerald-400 transition-colors flex items-center gap-1"
+                                                >
+                                                    <Icon name="RefreshCw" size={12} />
+                                                    Recalcular
+                                                </button>
+                                            </div>
                                         )}
                                     </div>
 
@@ -3247,9 +3363,7 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                                             results={results}
                                             formatCurrency={formatCurrency}
                                             initialWithdrawalBRL={
-                                                params.initialPortfolioUSD *
-                                                (params.withdrawalRate / 100) *
-                                                params.initialFX
+                                                results.medianInitialWithdrawalBRL
                                             }
                                             accumulationYears={
                                                 chartAccumulationYears
@@ -4058,7 +4172,7 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                                                                 <p className="text-xs text-gray-500">
                                                                     Sobrevivência gastando{" "}
                                                                     {formatCurrency(params.targetSpendingBRL)}/ano
-                                                                    (gasto alvo definido na Fase de Acumulação), sem
+                                                                    (Gasto Alvo Anual definido no Portfólio Inicial), sem
                                                                     trabalhar nenhum ano a mais
                                                                 </p>
                                                             </div>
@@ -4138,10 +4252,10 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                                                                             {formatCurrency(row.portfolioRealMedian)}
                                                                         </td>
                                                                         <td className="text-right py-2 px-3">
-                                                                            {row.swrConservative.toFixed(2)}%
+                                                                            {row.belowFloorConservative ? "< " : ""}{row.swrConservative.toFixed(2)}%
                                                                         </td>
                                                                         <td className="text-right py-2 px-3">
-                                                                            {row.swrAdjusted.toFixed(2)}%
+                                                                            {row.belowFloorAdjusted ? "< " : ""}{row.swrAdjusted.toFixed(2)}%
                                                                         </td>
                                                                         <td className="text-right py-2 px-3">
                                                                             {formatCurrency(row.monthlyConservative)}
@@ -4163,7 +4277,7 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                                                         bruta; SWR ajustado exige{" "}
                                                         {projectionResults.criteria.adjustedSurvival}% de
                                                         sobrevivência ajustada por mortalidade. "Sobrev. no gasto
-                                                        alvo" usa o gasto alvo definido na Fase de Acumulação,
+                                                        alvo" usa o Gasto Alvo Anual definido no Portfólio Inicial,
                                                         ajustado por mortalidade, mantendo o número de anos extra
                                                         trabalhados daquela linha.
                                                     </p>

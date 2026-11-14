@@ -384,6 +384,7 @@ class MonteCarloEngine {
                 : 0;
         const monthlyContributionBRL = this.params.monthlyContributionBRL || 0;
         const contributionSplitUSD = this.params.contributionSplitUSD ?? 80;
+        const iofContribution = this.params.iofContribution || 0;
         const contributionGrowthReal = this.params.contributionGrowthReal || 0;
         const spendingMode = this.params.spendingMode || "rate";
         const targetSpendingBRL = this.params.targetSpendingBRL || 0;
@@ -517,7 +518,8 @@ class MonteCarloEngine {
             portfolioUSD *= (1 + usdReturn);
 
             // Add this year's IPCA-indexed contribution, split at the
-            // current-year FX
+            // current-year FX. IOF on the remittance is charged on the BRL
+            // amount sent abroad, so only the net converts to USD.
             const annualContributionBRL =
                 monthlyContributionBRL *
                 12 *
@@ -525,7 +527,9 @@ class MonteCarloEngine {
                 Math.pow(1 + contributionGrowthReal / 100, totalYear - 1);
             const contributionToUSD_BRL =
                 annualContributionBRL * (contributionSplitUSD / 100);
-            const contributionToUSD = contributionToUSD_BRL / currentFX;
+            const contributionToUSD =
+                (contributionToUSD_BRL * (1 - iofContribution / 100)) /
+                currentFX;
             const contributionToBRL =
                 annualContributionBRL * (1 - contributionSplitUSD / 100);
             portfolioUSD += contributionToUSD;
@@ -577,6 +581,9 @@ class MonteCarloEngine {
                     ? currentWithdrawalBRL / boundaryPortfolioBRL
                     : 0;
         }
+        // First withdrawal as sized at retirement start (nominal BRL), before
+        // any G-K, smile or minimum adjustment.
+        history.initialWithdrawalBRL = currentWithdrawalBRL;
 
         for (let year = 1; year <= years; year++) {
             const totalYear = accYears + year;
@@ -1411,14 +1418,27 @@ class MonteCarloEngine {
                   ]
                 : 0;
 
-        // Withdrawal stats by period (early, mid, late)
-        const earlyYears = Math.floor(years / 3);
-        const midYears = Math.floor((2 * years) / 3);
+        // Median first withdrawal at retirement start (boundary portfolio
+        // and spending mode included). Undefined when no sim records it.
+        const initialWithdrawals = simulations
+            .map((s) => s.initialWithdrawalBRL)
+            .filter((w) => Number.isFinite(w))
+            .sort((a, b) => a - b);
+        const medianInitialWithdrawalBRL =
+            initialWithdrawals.length > 0
+                ? initialWithdrawals[Math.floor(initialWithdrawals.length / 2)]
+                : undefined;
+
+        // Withdrawal stats by period (early, mid, late), split over the
+        // retirement years only so accumulation years don't skew "early".
+        const retYears = this.params.years;
+        const earlyYears = accYears + Math.floor(retYears / 3);
+        const midYears = accYears + Math.floor((2 * retYears) / 3);
 
         const earlyWithdrawals = simulations.flatMap((s) =>
             s.withdrawalBRL
-                .slice(0, earlyYears)
-                .map((_, i) => totalIncome(s, i))
+                .slice(accYears, earlyYears)
+                .map((_, i) => totalIncome(s, accYears + i))
                 .filter((v) => v > 0),
         );
         const midWithdrawals = simulations.flatMap((s) =>
@@ -1574,6 +1594,7 @@ class MonteCarloEngine {
             worstWithdrawal,
             overallMeanWithdrawal,
             overallMedianWithdrawal,
+            medianInitialWithdrawalBRL,
             periodStats,
             medianFinalPortfolio: medianFinal,
             bestFinalPortfolio: bestFinal,
