@@ -413,6 +413,9 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                             "withdrawalRate",
                             parseFloat(result.optimalSWR.toFixed(2)),
                         );
+                        // The optimizer searches in rate mode; target mode
+                        // would ignore the optimal withdrawalRate on re-run
+                        updateParam("spendingMode", "rate");
                     } catch (error) {
                         console.error("Optimization error:", error);
                         setOptimizationProgress({
