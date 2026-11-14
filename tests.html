@@ -2285,6 +2285,25 @@
             });
         });
 
+        tf.describe('URL Query Overrides', () => {
+            const defaults = { withdrawalRate: 3.5, useINSS: true, mortalityGender: 'male', seed: null };
+
+            tf.it('coerces values to the default types', () => {
+                const o = MonteCarloEngine.paramsFromQuery(defaults,
+                    '?withdrawalRate=4.2&useINSS=false&mortalityGender=female&seed=42');
+                assertEqual(o.withdrawalRate, 4.2);
+                assertEqual(o.useINSS, false);
+                assertEqual(o.mortalityGender, 'female');
+                assertEqual(o.seed, 42);
+            });
+
+            tf.it('ignores unknown keys and invalid values', () => {
+                const o = MonteCarloEngine.paramsFromQuery(defaults,
+                    '?foo=1&withdrawalRate=abc&useINSS=yes&seed=');
+                assertEqual(Object.keys(o).length, 0, `unexpected keys: ${Object.keys(o).join(',')}`);
+            });
+        });
+
         // ============================================
         // RUN TESTS
         // ============================================
