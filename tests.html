@@ -122,8 +122,10 @@
 
     <script src="js/rng.js"></script>
     <script src="js/mortality-data.js"></script>
+    <script src="js/historical-data.js"></script>
     <script src="js/engine-core.js"></script>
     <script src="js/engine-projection.js"></script>
+    <script src="js/engine-historical.js"></script>
     <script>
         // ============================================
         // MINIMAL TEST FRAMEWORK (Zero Dependencies)
@@ -2055,6 +2057,49 @@
                     h.recommendedWithdrawalBRL[n + 1], expectedWithdrawal, Math.max(1, expectedWithdrawal * 0.001),
                     `first withdrawal should be ~${expectedWithdrawal.toFixed(2)}, got ${h.recommendedWithdrawalBRL[n + 1].toFixed(2)}`
                 );
+            });
+        });
+
+        tf.describe('Historical Backtest: Spending-Target Mode', () => {
+            const startIdx = 5;
+            const histParams = (overrides) => ({
+                ...getDefaultParams(),
+                useGuytonKlinger: false, // isolate the first-year sizing from G-K rule triggers
+                useSpendingSmile: false,
+                useINSS: false,
+                useMinimumWithdrawal: false,
+                years: 10,
+                ...overrides,
+            });
+
+            tf.it('first-year withdrawal equals targetSpendingBRL x that year\'s IPCA', () => {
+                const targetSpendingBRL = 150000;
+                const engine = new MonteCarloEngine(histParams({ spendingMode: 'target', targetSpendingBRL }));
+                const h = engine.runHistoricalBacktest(startIdx, 10);
+                const expected = targetSpendingBRL * (1 + HISTORICAL_DATA.ipca[startIdx]);
+                assertAlmostEqual(h.withdrawalBRL[0], targetSpendingBRL, 1e-6,
+                    `initial withdrawal should be ${targetSpendingBRL}, got ${h.withdrawalBRL[0]}`);
+                assertAlmostEqual(h.recommendedWithdrawalBRL[1], expected, 1e-6,
+                    `first-year withdrawal should be ${expected.toFixed(2)}, got ${h.recommendedWithdrawalBRL[1].toFixed(2)}`);
+            });
+
+            tf.it('rate mode sizes the first withdrawal as withdrawalRate% of the initial portfolio', () => {
+                const params = histParams({ spendingMode: 'rate', withdrawalRate: 4.0, targetSpendingBRL: 150000 });
+                const h = new MonteCarloEngine(params).runHistoricalBacktest(startIdx, 10);
+                const expected = h.portfolioBRL[0] * (params.withdrawalRate / 100);
+                assertAlmostEqual(h.withdrawalBRL[0], expected, 1e-6,
+                    `initial withdrawal should be ${expected.toFixed(2)}, got ${h.withdrawalBRL[0].toFixed(2)}`);
+            });
+
+            tf.it('target mode with accumulation on keeps rate-based sizing', () => {
+                const params = histParams({
+                    spendingMode: 'target', targetSpendingBRL: 150000, withdrawalRate: 4.0,
+                    useAccumulation: true, accumulationYears: 5,
+                });
+                const h = new MonteCarloEngine(params).runHistoricalBacktest(startIdx, 10);
+                const expected = h.portfolioBRL[0] * (params.withdrawalRate / 100);
+                assertAlmostEqual(h.withdrawalBRL[0], expected, 1e-6,
+                    `initial withdrawal should be ${expected.toFixed(2)}, got ${h.withdrawalBRL[0].toFixed(2)}`);
             });
         });
 
