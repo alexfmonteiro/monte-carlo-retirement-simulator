@@ -1411,14 +1411,16 @@ class MonteCarloEngine {
                   ]
                 : 0;
 
-        // Withdrawal stats by period (early, mid, late)
-        const earlyYears = Math.floor(years / 3);
-        const midYears = Math.floor((2 * years) / 3);
+        // Withdrawal stats by period (early, mid, late), split over the
+        // retirement years only so accumulation years don't skew "early".
+        const retYears = this.params.years;
+        const earlyYears = accYears + Math.floor(retYears / 3);
+        const midYears = accYears + Math.floor((2 * retYears) / 3);
 
         const earlyWithdrawals = simulations.flatMap((s) =>
             s.withdrawalBRL
-                .slice(0, earlyYears)
-                .map((_, i) => totalIncome(s, i))
+                .slice(accYears, earlyYears)
+                .map((_, i) => totalIncome(s, accYears + i))
                 .filter((v) => v > 0),
         );
         const midWithdrawals = simulations.flatMap((s) =>
