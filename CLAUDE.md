@@ -140,8 +140,9 @@ The test suite (`tests.html`) is a zero-dependency browser-based test framework 
 10. **Accumulation Phase**: Closed-form contribution/growth indexation, history-length and no-withdrawal boundary correctness, spending-target vs. rate-mode boundary sizing
 11. **FX-Equity Realized Correlation**: Realized corr(equity, ΔFX) matches the configured parameter
 12. **BRL Sleeve and BRL Spending**: BRL-only portfolios, failure only when both sleeves are depleted, BRL withdrawal indexed at exactly (1+inflation)
-13. **Historical Backtest**: Spending-target vs. rate-mode first-withdrawal sizing
-14. **Retirement-Age Sweep**: Shape/finiteness of `runRetirementAgeSweep()` output, sustainable-SWR monotonicity vs. extra years worked
+13. **Retirement-Age Sweep**: Shape/finiteness of `runRetirementAgeSweep()` output, sustainable-SWR monotonicity vs. extra years worked
+14. **Historical Backtest**: Spending-target vs. rate-mode first-withdrawal sizing, window count/finiteness, BRL-only portfolio, IPCA-indexed BRL spending, worst window in the late-1990s/early-2000s crisis
+15. **Endowment**: Seeded reproducibility and finite metrics of `runMonteCarloComparison()`, CAPE process bounds
 
 ## Backlog and the governor
 

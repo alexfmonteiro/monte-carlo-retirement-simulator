@@ -98,6 +98,9 @@ MonteCarloEngine.prototype.runRetirementAgeSweep = async function (options = {})
     const onProgress = options.onProgress || (() => {});
 
     const currentAge = this.params.currentAge || 60;
+    // One seed for every run in the sweep: the user's seed if set, else
+    // the engine's random one, so results are reproducible from getSeed().
+    const seed = this.initialSeed;
     const targetSpendingBRL = this.params.targetSpendingBRL || 0;
     const byAge = [];
 
@@ -120,13 +123,13 @@ MonteCarloEngine.prototype.runRetirementAgeSweep = async function (options = {})
             baseParams,
             criteria.rawSurvival,
             (r) => r.survivalRate,
-            { probeIterations, confirmIterations },
+            { probeIterations, confirmIterations, seed },
         );
         const adjustedSearch = await this._bisectSWR(
             baseParams,
             criteria.adjustedSurvival,
             (r) => r.mortalityAdjustedSurvivalRate ?? r.survivalRate,
-            { probeIterations, confirmIterations },
+            { probeIterations, confirmIterations, seed },
         );
 
         // (c) Median real portfolio at the retirement boundary (year index
@@ -153,9 +156,7 @@ MonteCarloEngine.prototype.runRetirementAgeSweep = async function (options = {})
         };
         const targetEngine = new MonteCarloEngine({
             ...targetParams,
-            seed: Number.isFinite(this.params.seed)
-                ? this.params.seed
-                : Math.floor(Math.random() * 2147483647),
+            seed,
         });
         const targetResults = targetEngine.runMonteCarlo(confirmIterations);
 
