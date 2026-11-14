@@ -1,0 +1,1497 @@
+{
+  "method": {
+    "iterations": 5000,
+    "seed": 42,
+    "totalPortfolioBRL": 1000000,
+    "endAge": 95,
+    "rateStep": 0.1,
+    "maxRate": 20,
+    "targets": [
+      90,
+      95
+    ]
+  },
+  "grid": {
+    "horizonYears": [
+      30,
+      40,
+      50
+    ],
+    "equityPercent": [
+      60,
+      80,
+      100
+    ],
+    "usdPercent": [
+      50,
+      75,
+      100
+    ],
+    "guytonKlinger": [
+      false,
+      true
+    ]
+  },
+  "baseParams": {
+    "initialFX": 5.15,
+    "equityReturn": 6.5,
+    "equityVolatility": 18,
+    "bondReturn": 5.5,
+    "bondVolatility": 3,
+    "inflation": 4,
+    "tentDuration": 0,
+    "preservationThreshold": 0.2,
+    "prosperityThreshold": 0.2,
+    "adjustmentPercent": 0.1,
+    "applyInflationRule": true,
+    "useMinimumWithdrawal": false,
+    "useINSS": false,
+    "useBucketStrategy": false,
+    "useStudentT": true,
+    "degreesOfFreedom": 8,
+    "useDynamicCorrelation": true,
+    "baseCorrelation": -0.35,
+    "stressCorrelationMultiplier": 2,
+    "useIPCAModel": true,
+    "expectedIPCA": 4,
+    "ipcaVolatility": 2,
+    "realSpread": 5.5,
+    "usdInflation": 2.3,
+    "usdBondReturn": 4.7,
+    "usdBondVolatility": 6,
+    "useTaxModel": true,
+    "equityTaxRate": 15,
+    "fixedIncomeTaxRate": 15,
+    "useSpendingSmile": false,
+    "useRegimeSwitching": false,
+    "useSequenceConstraint": false,
+    "useAccumulation": false,
+    "spendingMode": "rate",
+    "useMortalityAdjustment": true,
+    "mortalityGender": "male",
+    "seed": 42
+  },
+  "sources": {
+    "initialFX": "USD/BRL à vista em jul/2026. Focus 2026-28: 5,15-5,30.",
+    "equityReturn": "Retorno real esperado de ações globais. CMAs 2026 para 10 anos: 5-6%. Histórico ~10% nominal.",
+    "equityVolatility": "Volatilidade anual histórica do S&P 500: ~19,7%.",
+    "degreesOfFreedom": "T-Student com caudas gordas. Retornos anuais: 8-15 graus de liberdade é típico.",
+    "baseCorrelation": "Correlação realizada entre S&P 500 e variação do câmbio, 1996-2024: -0,33.",
+    "stressCorrelationMultiplier": "A correlação dobra em anos de queda forte da bolsa.",
+    "expectedIPCA": "Focus jul/2026: 5,3% (2026) até 3,5% (2029). Meta: 3%.",
+    "ipcaVolatility": "Desvio-padrão do IPCA anual 2005-2024: ~1,9 p.p.",
+    "realSpread": "Juro real da renda fixa em BRL. NTN-B longas: IPCA+7,3-8,3% (2026). Juro neutro BCB: 4,5-5,5%.",
+    "usdInflation": "Breakeven de 10 anos nos EUA: ~2,24% (jul/2026). Meta do Fed: 2%.",
+    "usdBondReturn": "Treasury de 10 anos: ~4,6% (jul/2026). Consenso de CMAs: 4,7%.",
+    "usdBondVolatility": "Renda fixa americana agregada/intermediária: ~5-6% a.a.",
+    "equityTaxRate": "IR sobre ganho de ETFs irlandeses (simplificado).",
+    "fixedIncomeTaxRate": "IR sobre renda fixa (simplificado).",
+    "mortalityGender": "Tábua de mortalidade IBGE 2023, homem."
+  },
+  "rows": [
+    {
+      "horizonYears": 30,
+      "equityPercent": 60,
+      "usdPercent": 50,
+      "guytonKlinger": false,
+      "startAge": 65,
+      "swr": {
+        "raw90": {
+          "rate": 3.9,
+          "capped": false
+        },
+        "raw95": {
+          "rate": 3.7,
+          "capped": false
+        },
+        "adjusted90": {
+          "rate": 5.6,
+          "capped": false
+        },
+        "adjusted95": {
+          "rate": 5,
+          "capped": false
+        }
+      },
+      "simulatorQuery": "initialFX=5.15&equityReturn=6.5&equityVolatility=18&bondReturn=5.5&bondVolatility=3&inflation=4&tentDuration=0&preservationThreshold=0.2&prosperityThreshold=0.2&adjustmentPercent=0.1&applyInflationRule=true&useMinimumWithdrawal=false&useINSS=false&useBucketStrategy=false&useStudentT=true&degreesOfFreedom=8&useDynamicCorrelation=true&baseCorrelation=-0.35&stressCorrelationMultiplier=2&useIPCAModel=true&expectedIPCA=4&ipcaVolatility=2&realSpread=5.5&usdInflation=2.3&usdBondReturn=4.7&usdBondVolatility=6&useTaxModel=true&equityTaxRate=15&fixedIncomeTaxRate=15&useSpendingSmile=false&useRegimeSwitching=false&useSequenceConstraint=false&useAccumulation=false&spendingMode=rate&useMortalityAdjustment=true&mortalityGender=male&seed=42&initialPortfolioUSD=97087.379&initialPortfolioBRL=500000&years=30&currentAge=65&tentInitialBondPercent=40&targetBondPercent=40&useGuytonKlinger=false&withdrawalRate=3.7&iterations=5000"
+    },
+    {
+      "horizonYears": 30,
+      "equityPercent": 60,
+      "usdPercent": 50,
+      "guytonKlinger": true,
+      "startAge": 65,
+      "swr": {
+        "raw90": {
+          "rate": 7.2,
+          "capped": false
+        },
+        "raw95": {
+          "rate": 6.7,
+          "capped": false
+        },
+        "adjusted90": {
+          "rate": 9.4,
+          "capped": false
+        },
+        "adjusted95": {
+          "rate": 8.6,
+          "capped": false
+        }
+      },
+      "simulatorQuery": "initialFX=5.15&equityReturn=6.5&equityVolatility=18&bondReturn=5.5&bondVolatility=3&inflation=4&tentDuration=0&preservationThreshold=0.2&prosperityThreshold=0.2&adjustmentPercent=0.1&applyInflationRule=true&useMinimumWithdrawal=false&useINSS=false&useBucketStrategy=false&useStudentT=true&degreesOfFreedom=8&useDynamicCorrelation=true&baseCorrelation=-0.35&stressCorrelationMultiplier=2&useIPCAModel=true&expectedIPCA=4&ipcaVolatility=2&realSpread=5.5&usdInflation=2.3&usdBondReturn=4.7&usdBondVolatility=6&useTaxModel=true&equityTaxRate=15&fixedIncomeTaxRate=15&useSpendingSmile=false&useRegimeSwitching=false&useSequenceConstraint=false&useAccumulation=false&spendingMode=rate&useMortalityAdjustment=true&mortalityGender=male&seed=42&initialPortfolioUSD=97087.379&initialPortfolioBRL=500000&years=30&currentAge=65&tentInitialBondPercent=40&targetBondPercent=40&useGuytonKlinger=true&withdrawalRate=6.7&iterations=5000"
+    },
+    {
+      "horizonYears": 30,
+      "equityPercent": 60,
+      "usdPercent": 75,
+      "guytonKlinger": false,
+      "startAge": 65,
+      "swr": {
+        "raw90": {
+          "rate": 3,
+          "capped": false
+        },
+        "raw95": {
+          "rate": 2.8,
+          "capped": false
+        },
+        "adjusted90": {
+          "rate": 4.9,
+          "capped": false
+        },
+        "adjusted95": {
+          "rate": 4.3,
+          "capped": false
+        }
+      },
+      "simulatorQuery": "initialFX=5.15&equityReturn=6.5&equityVolatility=18&bondReturn=5.5&bondVolatility=3&inflation=4&tentDuration=0&preservationThreshold=0.2&prosperityThreshold=0.2&adjustmentPercent=0.1&applyInflationRule=true&useMinimumWithdrawal=false&useINSS=false&useBucketStrategy=false&useStudentT=true&degreesOfFreedom=8&useDynamicCorrelation=true&baseCorrelation=-0.35&stressCorrelationMultiplier=2&useIPCAModel=true&expectedIPCA=4&ipcaVolatility=2&realSpread=5.5&usdInflation=2.3&usdBondReturn=4.7&usdBondVolatility=6&useTaxModel=true&equityTaxRate=15&fixedIncomeTaxRate=15&useSpendingSmile=false&useRegimeSwitching=false&useSequenceConstraint=false&useAccumulation=false&spendingMode=rate&useMortalityAdjustment=true&mortalityGender=male&seed=42&initialPortfolioUSD=145631.068&initialPortfolioBRL=250000&years=30&currentAge=65&tentInitialBondPercent=40&targetBondPercent=40&useGuytonKlinger=false&withdrawalRate=2.8&iterations=5000"
+    },
+    {
+      "horizonYears": 30,
+      "equityPercent": 60,
+      "usdPercent": 75,
+      "guytonKlinger": true,
+      "startAge": 65,
+      "swr": {
+        "raw90": {
+          "rate": 7,
+          "capped": false
+        },
+        "raw95": {
+          "rate": 6.5,
+          "capped": false
+        },
+        "adjusted90": {
+          "rate": 9.1,
+          "capped": false
+        },
+        "adjusted95": {
+          "rate": 8.3,
+          "capped": false
+        }
+      },
+      "simulatorQuery": "initialFX=5.15&equityReturn=6.5&equityVolatility=18&bondReturn=5.5&bondVolatility=3&inflation=4&tentDuration=0&preservationThreshold=0.2&prosperityThreshold=0.2&adjustmentPercent=0.1&applyInflationRule=true&useMinimumWithdrawal=false&useINSS=false&useBucketStrategy=false&useStudentT=true&degreesOfFreedom=8&useDynamicCorrelation=true&baseCorrelation=-0.35&stressCorrelationMultiplier=2&useIPCAModel=true&expectedIPCA=4&ipcaVolatility=2&realSpread=5.5&usdInflation=2.3&usdBondReturn=4.7&usdBondVolatility=6&useTaxModel=true&equityTaxRate=15&fixedIncomeTaxRate=15&useSpendingSmile=false&useRegimeSwitching=false&useSequenceConstraint=false&useAccumulation=false&spendingMode=rate&useMortalityAdjustment=true&mortalityGender=male&seed=42&initialPortfolioUSD=145631.068&initialPortfolioBRL=250000&years=30&currentAge=65&tentInitialBondPercent=40&targetBondPercent=40&useGuytonKlinger=true&withdrawalRate=6.5&iterations=5000"
+    },
+    {
+      "horizonYears": 30,
+      "equityPercent": 60,
+      "usdPercent": 100,
+      "guytonKlinger": false,
+      "startAge": 65,
+      "swr": {
+        "raw90": {
+          "rate": 2.7,
+          "capped": false
+        },
+        "raw95": {
+          "rate": 2.4,
+          "capped": false
+        },
+        "adjusted90": {
+          "rate": 4.6,
+          "capped": false
+        },
+        "adjusted95": {
+          "rate": 3.9,
+          "capped": false
+        }
+      },
+      "simulatorQuery": "initialFX=5.15&equityReturn=6.5&equityVolatility=18&bondReturn=5.5&bondVolatility=3&inflation=4&tentDuration=0&preservationThreshold=0.2&prosperityThreshold=0.2&adjustmentPercent=0.1&applyInflationRule=true&useMinimumWithdrawal=false&useINSS=false&useBucketStrategy=false&useStudentT=true&degreesOfFreedom=8&useDynamicCorrelation=true&baseCorrelation=-0.35&stressCorrelationMultiplier=2&useIPCAModel=true&expectedIPCA=4&ipcaVolatility=2&realSpread=5.5&usdInflation=2.3&usdBondReturn=4.7&usdBondVolatility=6&useTaxModel=true&equityTaxRate=15&fixedIncomeTaxRate=15&useSpendingSmile=false&useRegimeSwitching=false&useSequenceConstraint=false&useAccumulation=false&spendingMode=rate&useMortalityAdjustment=true&mortalityGender=male&seed=42&initialPortfolioUSD=194174.757&initialPortfolioBRL=0&years=30&currentAge=65&tentInitialBondPercent=40&targetBondPercent=40&useGuytonKlinger=false&withdrawalRate=2.4&iterations=5000"
+    },
+    {
+      "horizonYears": 30,
+      "equityPercent": 60,
+      "usdPercent": 100,
+      "guytonKlinger": true,
+      "startAge": 65,
+      "swr": {
+        "raw90": {
+          "rate": 6.9,
+          "capped": false
+        },
+        "raw95": {
+          "rate": 6.4,
+          "capped": false
+        },
+        "adjusted90": {
+          "rate": 9,
+          "capped": false
+        },
+        "adjusted95": {
+          "rate": 8.2,
+          "capped": false
+        }
+      },
+      "simulatorQuery": "initialFX=5.15&equityReturn=6.5&equityVolatility=18&bondReturn=5.5&bondVolatility=3&inflation=4&tentDuration=0&preservationThreshold=0.2&prosperityThreshold=0.2&adjustmentPercent=0.1&applyInflationRule=true&useMinimumWithdrawal=false&useINSS=false&useBucketStrategy=false&useStudentT=true&degreesOfFreedom=8&useDynamicCorrelation=true&baseCorrelation=-0.35&stressCorrelationMultiplier=2&useIPCAModel=true&expectedIPCA=4&ipcaVolatility=2&realSpread=5.5&usdInflation=2.3&usdBondReturn=4.7&usdBondVolatility=6&useTaxModel=true&equityTaxRate=15&fixedIncomeTaxRate=15&useSpendingSmile=false&useRegimeSwitching=false&useSequenceConstraint=false&useAccumulation=false&spendingMode=rate&useMortalityAdjustment=true&mortalityGender=male&seed=42&initialPortfolioUSD=194174.757&initialPortfolioBRL=0&years=30&currentAge=65&tentInitialBondPercent=40&targetBondPercent=40&useGuytonKlinger=true&withdrawalRate=6.4&iterations=5000"
+    },
+    {
+      "horizonYears": 30,
+      "equityPercent": 80,
+      "usdPercent": 50,
+      "guytonKlinger": false,
+      "startAge": 65,
+      "swr": {
+        "raw90": {
+          "rate": 3.7,
+          "capped": false
+        },
+        "raw95": {
+          "rate": 3.6,
+          "capped": false
+        },
+        "adjusted90": {
+          "rate": 5.5,
+          "capped": false
+        },
+        "adjusted95": {
+          "rate": 4.9,
+          "capped": false
+        }
+      },
+      "simulatorQuery": "initialFX=5.15&equityReturn=6.5&equityVolatility=18&bondReturn=5.5&bondVolatility=3&inflation=4&tentDuration=0&preservationThreshold=0.2&prosperityThreshold=0.2&adjustmentPercent=0.1&applyInflationRule=true&useMinimumWithdrawal=false&useINSS=false&useBucketStrategy=false&useStudentT=true&degreesOfFreedom=8&useDynamicCorrelation=true&baseCorrelation=-0.35&stressCorrelationMultiplier=2&useIPCAModel=true&expectedIPCA=4&ipcaVolatility=2&realSpread=5.5&usdInflation=2.3&usdBondReturn=4.7&usdBondVolatility=6&useTaxModel=true&equityTaxRate=15&fixedIncomeTaxRate=15&useSpendingSmile=false&useRegimeSwitching=false&useSequenceConstraint=false&useAccumulation=false&spendingMode=rate&useMortalityAdjustment=true&mortalityGender=male&seed=42&initialPortfolioUSD=97087.379&initialPortfolioBRL=500000&years=30&currentAge=65&tentInitialBondPercent=20&targetBondPercent=20&useGuytonKlinger=false&withdrawalRate=3.6&iterations=5000"
+    },
+    {
+      "horizonYears": 30,
+      "equityPercent": 80,
+      "usdPercent": 50,
+      "guytonKlinger": true,
+      "startAge": 65,
+      "swr": {
+        "raw90": {
+          "rate": 6.8,
+          "capped": false
+        },
+        "raw95": {
+          "rate": 6.3,
+          "capped": false
+        },
+        "adjusted90": {
+          "rate": 9.2,
+          "capped": false
+        },
+        "adjusted95": {
+          "rate": 8.4,
+          "capped": false
+        }
+      },
+      "simulatorQuery": "initialFX=5.15&equityReturn=6.5&equityVolatility=18&bondReturn=5.5&bondVolatility=3&inflation=4&tentDuration=0&preservationThreshold=0.2&prosperityThreshold=0.2&adjustmentPercent=0.1&applyInflationRule=true&useMinimumWithdrawal=false&useINSS=false&useBucketStrategy=false&useStudentT=true&degreesOfFreedom=8&useDynamicCorrelation=true&baseCorrelation=-0.35&stressCorrelationMultiplier=2&useIPCAModel=true&expectedIPCA=4&ipcaVolatility=2&realSpread=5.5&usdInflation=2.3&usdBondReturn=4.7&usdBondVolatility=6&useTaxModel=true&equityTaxRate=15&fixedIncomeTaxRate=15&useSpendingSmile=false&useRegimeSwitching=false&useSequenceConstraint=false&useAccumulation=false&spendingMode=rate&useMortalityAdjustment=true&mortalityGender=male&seed=42&initialPortfolioUSD=97087.379&initialPortfolioBRL=500000&years=30&currentAge=65&tentInitialBondPercent=20&targetBondPercent=20&useGuytonKlinger=true&withdrawalRate=6.3&iterations=5000"
+    },
+    {
+      "horizonYears": 30,
+      "equityPercent": 80,
+      "usdPercent": 75,
+      "guytonKlinger": false,
+      "startAge": 65,
+      "swr": {
+        "raw90": {
+          "rate": 2.8,
+          "capped": false
+        },
+        "raw95": {
+          "rate": 2.4,
+          "capped": false
+        },
+        "adjusted90": {
+          "rate": 4.7,
+          "capped": false
+        },
+        "adjusted95": {
+          "rate": 4,
+          "capped": false
+        }
+      },
+      "simulatorQuery": "initialFX=5.15&equityReturn=6.5&equityVolatility=18&bondReturn=5.5&bondVolatility=3&inflation=4&tentDuration=0&preservationThreshold=0.2&prosperityThreshold=0.2&adjustmentPercent=0.1&applyInflationRule=true&useMinimumWithdrawal=false&useINSS=false&useBucketStrategy=false&useStudentT=true&degreesOfFreedom=8&useDynamicCorrelation=true&baseCorrelation=-0.35&stressCorrelationMultiplier=2&useIPCAModel=true&expectedIPCA=4&ipcaVolatility=2&realSpread=5.5&usdInflation=2.3&usdBondReturn=4.7&usdBondVolatility=6&useTaxModel=true&equityTaxRate=15&fixedIncomeTaxRate=15&useSpendingSmile=false&useRegimeSwitching=false&useSequenceConstraint=false&useAccumulation=false&spendingMode=rate&useMortalityAdjustment=true&mortalityGender=male&seed=42&initialPortfolioUSD=145631.068&initialPortfolioBRL=250000&years=30&currentAge=65&tentInitialBondPercent=20&targetBondPercent=20&useGuytonKlinger=false&withdrawalRate=2.4&iterations=5000"
+    },
+    {
+      "horizonYears": 30,
+      "equityPercent": 80,
+      "usdPercent": 75,
+      "guytonKlinger": true,
+      "startAge": 65,
+      "swr": {
+        "raw90": {
+          "rate": 6.6,
+          "capped": false
+        },
+        "raw95": {
+          "rate": 6,
+          "capped": false
+        },
+        "adjusted90": {
+          "rate": 8.8,
+          "capped": false
+        },
+        "adjusted95": {
+          "rate": 7.9,
+          "capped": false
+        }
+      },
+      "simulatorQuery": "initialFX=5.15&equityReturn=6.5&equityVolatility=18&bondReturn=5.5&bondVolatility=3&inflation=4&tentDuration=0&preservationThreshold=0.2&prosperityThreshold=0.2&adjustmentPercent=0.1&applyInflationRule=true&useMinimumWithdrawal=false&useINSS=false&useBucketStrategy=false&useStudentT=true&degreesOfFreedom=8&useDynamicCorrelation=true&baseCorrelation=-0.35&stressCorrelationMultiplier=2&useIPCAModel=true&expectedIPCA=4&ipcaVolatility=2&realSpread=5.5&usdInflation=2.3&usdBondReturn=4.7&usdBondVolatility=6&useTaxModel=true&equityTaxRate=15&fixedIncomeTaxRate=15&useSpendingSmile=false&useRegimeSwitching=false&useSequenceConstraint=false&useAccumulation=false&spendingMode=rate&useMortalityAdjustment=true&mortalityGender=male&seed=42&initialPortfolioUSD=145631.068&initialPortfolioBRL=250000&years=30&currentAge=65&tentInitialBondPercent=20&targetBondPercent=20&useGuytonKlinger=true&withdrawalRate=6&iterations=5000"
+    },
+    {
+      "horizonYears": 30,
+      "equityPercent": 80,
+      "usdPercent": 100,
+      "guytonKlinger": false,
+      "startAge": 65,
+      "swr": {
+        "raw90": {
+          "rate": 2.3,
+          "capped": false
+        },
+        "raw95": {
+          "rate": 1.9,
+          "capped": false
+        },
+        "adjusted90": {
+          "rate": 4.3,
+          "capped": false
+        },
+        "adjusted95": {
+          "rate": 3.5,
+          "capped": false
+        }
+      },
+      "simulatorQuery": "initialFX=5.15&equityReturn=6.5&equityVolatility=18&bondReturn=5.5&bondVolatility=3&inflation=4&tentDuration=0&preservationThreshold=0.2&prosperityThreshold=0.2&adjustmentPercent=0.1&applyInflationRule=true&useMinimumWithdrawal=false&useINSS=false&useBucketStrategy=false&useStudentT=true&degreesOfFreedom=8&useDynamicCorrelation=true&baseCorrelation=-0.35&stressCorrelationMultiplier=2&useIPCAModel=true&expectedIPCA=4&ipcaVolatility=2&realSpread=5.5&usdInflation=2.3&usdBondReturn=4.7&usdBondVolatility=6&useTaxModel=true&equityTaxRate=15&fixedIncomeTaxRate=15&useSpendingSmile=false&useRegimeSwitching=false&useSequenceConstraint=false&useAccumulation=false&spendingMode=rate&useMortalityAdjustment=true&mortalityGender=male&seed=42&initialPortfolioUSD=194174.757&initialPortfolioBRL=0&years=30&currentAge=65&tentInitialBondPercent=20&targetBondPercent=20&useGuytonKlinger=false&withdrawalRate=1.9&iterations=5000"
+    },
+    {
+      "horizonYears": 30,
+      "equityPercent": 80,
+      "usdPercent": 100,
+      "guytonKlinger": true,
+      "startAge": 65,
+      "swr": {
+        "raw90": {
+          "rate": 6.5,
+          "capped": false
+        },
+        "raw95": {
+          "rate": 6,
+          "capped": false
+        },
+        "adjusted90": {
+          "rate": 8.7,
+          "capped": false
+        },
+        "adjusted95": {
+          "rate": 7.8,
+          "capped": false
+        }
+      },
+      "simulatorQuery": "initialFX=5.15&equityReturn=6.5&equityVolatility=18&bondReturn=5.5&bondVolatility=3&inflation=4&tentDuration=0&preservationThreshold=0.2&prosperityThreshold=0.2&adjustmentPercent=0.1&applyInflationRule=true&useMinimumWithdrawal=false&useINSS=false&useBucketStrategy=false&useStudentT=true&degreesOfFreedom=8&useDynamicCorrelation=true&baseCorrelation=-0.35&stressCorrelationMultiplier=2&useIPCAModel=true&expectedIPCA=4&ipcaVolatility=2&realSpread=5.5&usdInflation=2.3&usdBondReturn=4.7&usdBondVolatility=6&useTaxModel=true&equityTaxRate=15&fixedIncomeTaxRate=15&useSpendingSmile=false&useRegimeSwitching=false&useSequenceConstraint=false&useAccumulation=false&spendingMode=rate&useMortalityAdjustment=true&mortalityGender=male&seed=42&initialPortfolioUSD=194174.757&initialPortfolioBRL=0&years=30&currentAge=65&tentInitialBondPercent=20&targetBondPercent=20&useGuytonKlinger=true&withdrawalRate=6&iterations=5000"
+    },
+    {
+      "horizonYears": 30,
+      "equityPercent": 100,
+      "usdPercent": 50,
+      "guytonKlinger": false,
+      "startAge": 65,
+      "swr": {
+        "raw90": {
+          "rate": 3.5,
+          "capped": false
+        },
+        "raw95": {
+          "rate": 3.4,
+          "capped": false
+        },
+        "adjusted90": {
+          "rate": 5.3,
+          "capped": false
+        },
+        "adjusted95": {
+          "rate": 4.7,
+          "capped": false
+        }
+      },
+      "simulatorQuery": "initialFX=5.15&equityReturn=6.5&equityVolatility=18&bondReturn=5.5&bondVolatility=3&inflation=4&tentDuration=0&preservationThreshold=0.2&prosperityThreshold=0.2&adjustmentPercent=0.1&applyInflationRule=true&useMinimumWithdrawal=false&useINSS=false&useBucketStrategy=false&useStudentT=true&degreesOfFreedom=8&useDynamicCorrelation=true&baseCorrelation=-0.35&stressCorrelationMultiplier=2&useIPCAModel=true&expectedIPCA=4&ipcaVolatility=2&realSpread=5.5&usdInflation=2.3&usdBondReturn=4.7&usdBondVolatility=6&useTaxModel=true&equityTaxRate=15&fixedIncomeTaxRate=15&useSpendingSmile=false&useRegimeSwitching=false&useSequenceConstraint=false&useAccumulation=false&spendingMode=rate&useMortalityAdjustment=true&mortalityGender=male&seed=42&initialPortfolioUSD=97087.379&initialPortfolioBRL=500000&years=30&currentAge=65&tentInitialBondPercent=0&targetBondPercent=0&useGuytonKlinger=false&withdrawalRate=3.4&iterations=5000"
+    },
+    {
+      "horizonYears": 30,
+      "equityPercent": 100,
+      "usdPercent": 50,
+      "guytonKlinger": true,
+      "startAge": 65,
+      "swr": {
+        "raw90": {
+          "rate": 6.4,
+          "capped": false
+        },
+        "raw95": {
+          "rate": 5.8,
+          "capped": false
+        },
+        "adjusted90": {
+          "rate": 8.9,
+          "capped": false
+        },
+        "adjusted95": {
+          "rate": 7.9,
+          "capped": false
+        }
+      },
+      "simulatorQuery": "initialFX=5.15&equityReturn=6.5&equityVolatility=18&bondReturn=5.5&bondVolatility=3&inflation=4&tentDuration=0&preservationThreshold=0.2&prosperityThreshold=0.2&adjustmentPercent=0.1&applyInflationRule=true&useMinimumWithdrawal=false&useINSS=false&useBucketStrategy=false&useStudentT=true&degreesOfFreedom=8&useDynamicCorrelation=true&baseCorrelation=-0.35&stressCorrelationMultiplier=2&useIPCAModel=true&expectedIPCA=4&ipcaVolatility=2&realSpread=5.5&usdInflation=2.3&usdBondReturn=4.7&usdBondVolatility=6&useTaxModel=true&equityTaxRate=15&fixedIncomeTaxRate=15&useSpendingSmile=false&useRegimeSwitching=false&useSequenceConstraint=false&useAccumulation=false&spendingMode=rate&useMortalityAdjustment=true&mortalityGender=male&seed=42&initialPortfolioUSD=97087.379&initialPortfolioBRL=500000&years=30&currentAge=65&tentInitialBondPercent=0&targetBondPercent=0&useGuytonKlinger=true&withdrawalRate=5.8&iterations=5000"
+    },
+    {
+      "horizonYears": 30,
+      "equityPercent": 100,
+      "usdPercent": 75,
+      "guytonKlinger": false,
+      "startAge": 65,
+      "swr": {
+        "raw90": {
+          "rate": 2.4,
+          "capped": false
+        },
+        "raw95": {
+          "rate": 2.1,
+          "capped": false
+        },
+        "adjusted90": {
+          "rate": 4.4,
+          "capped": false
+        },
+        "adjusted95": {
+          "rate": 3.6,
+          "capped": false
+        }
+      },
+      "simulatorQuery": "initialFX=5.15&equityReturn=6.5&equityVolatility=18&bondReturn=5.5&bondVolatility=3&inflation=4&tentDuration=0&preservationThreshold=0.2&prosperityThreshold=0.2&adjustmentPercent=0.1&applyInflationRule=true&useMinimumWithdrawal=false&useINSS=false&useBucketStrategy=false&useStudentT=true&degreesOfFreedom=8&useDynamicCorrelation=true&baseCorrelation=-0.35&stressCorrelationMultiplier=2&useIPCAModel=true&expectedIPCA=4&ipcaVolatility=2&realSpread=5.5&usdInflation=2.3&usdBondReturn=4.7&usdBondVolatility=6&useTaxModel=true&equityTaxRate=15&fixedIncomeTaxRate=15&useSpendingSmile=false&useRegimeSwitching=false&useSequenceConstraint=false&useAccumulation=false&spendingMode=rate&useMortalityAdjustment=true&mortalityGender=male&seed=42&initialPortfolioUSD=145631.068&initialPortfolioBRL=250000&years=30&currentAge=65&tentInitialBondPercent=0&targetBondPercent=0&useGuytonKlinger=false&withdrawalRate=2.1&iterations=5000"
+    },
+    {
+      "horizonYears": 30,
+      "equityPercent": 100,
+      "usdPercent": 75,
+      "guytonKlinger": true,
+      "startAge": 65,
+      "swr": {
+        "raw90": {
+          "rate": 5.9,
+          "capped": false
+        },
+        "raw95": {
+          "rate": 5.2,
+          "capped": false
+        },
+        "adjusted90": {
+          "rate": 8.3,
+          "capped": false
+        },
+        "adjusted95": {
+          "rate": 7.3,
+          "capped": false
+        }
+      },
+      "simulatorQuery": "initialFX=5.15&equityReturn=6.5&equityVolatility=18&bondReturn=5.5&bondVolatility=3&inflation=4&tentDuration=0&preservationThreshold=0.2&prosperityThreshold=0.2&adjustmentPercent=0.1&applyInflationRule=true&useMinimumWithdrawal=false&useINSS=false&useBucketStrategy=false&useStudentT=true&degreesOfFreedom=8&useDynamicCorrelation=true&baseCorrelation=-0.35&stressCorrelationMultiplier=2&useIPCAModel=true&expectedIPCA=4&ipcaVolatility=2&realSpread=5.5&usdInflation=2.3&usdBondReturn=4.7&usdBondVolatility=6&useTaxModel=true&equityTaxRate=15&fixedIncomeTaxRate=15&useSpendingSmile=false&useRegimeSwitching=false&useSequenceConstraint=false&useAccumulation=false&spendingMode=rate&useMortalityAdjustment=true&mortalityGender=male&seed=42&initialPortfolioUSD=145631.068&initialPortfolioBRL=250000&years=30&currentAge=65&tentInitialBondPercent=0&targetBondPercent=0&useGuytonKlinger=true&withdrawalRate=5.2&iterations=5000"
+    },
+    {
+      "horizonYears": 30,
+      "equityPercent": 100,
+      "usdPercent": 100,
+      "guytonKlinger": false,
+      "startAge": 65,
+      "swr": {
+        "raw90": {
+          "rate": 1.9,
+          "capped": false
+        },
+        "raw95": {
+          "rate": 1.5,
+          "capped": false
+        },
+        "adjusted90": {
+          "rate": 3.9,
+          "capped": false
+        },
+        "adjusted95": {
+          "rate": 3.1,
+          "capped": false
+        }
+      },
+      "simulatorQuery": "initialFX=5.15&equityReturn=6.5&equityVolatility=18&bondReturn=5.5&bondVolatility=3&inflation=4&tentDuration=0&preservationThreshold=0.2&prosperityThreshold=0.2&adjustmentPercent=0.1&applyInflationRule=true&useMinimumWithdrawal=false&useINSS=false&useBucketStrategy=false&useStudentT=true&degreesOfFreedom=8&useDynamicCorrelation=true&baseCorrelation=-0.35&stressCorrelationMultiplier=2&useIPCAModel=true&expectedIPCA=4&ipcaVolatility=2&realSpread=5.5&usdInflation=2.3&usdBondReturn=4.7&usdBondVolatility=6&useTaxModel=true&equityTaxRate=15&fixedIncomeTaxRate=15&useSpendingSmile=false&useRegimeSwitching=false&useSequenceConstraint=false&useAccumulation=false&spendingMode=rate&useMortalityAdjustment=true&mortalityGender=male&seed=42&initialPortfolioUSD=194174.757&initialPortfolioBRL=0&years=30&currentAge=65&tentInitialBondPercent=0&targetBondPercent=0&useGuytonKlinger=false&withdrawalRate=1.5&iterations=5000"
+    },
+    {
+      "horizonYears": 30,
+      "equityPercent": 100,
+      "usdPercent": 100,
+      "guytonKlinger": true,
+      "startAge": 65,
+      "swr": {
+        "raw90": {
+          "rate": 5.8,
+          "capped": false
+        },
+        "raw95": {
+          "rate": 5,
+          "capped": false
+        },
+        "adjusted90": {
+          "rate": 8.1,
+          "capped": false
+        },
+        "adjusted95": {
+          "rate": 7.1,
+          "capped": false
+        }
+      },
+      "simulatorQuery": "initialFX=5.15&equityReturn=6.5&equityVolatility=18&bondReturn=5.5&bondVolatility=3&inflation=4&tentDuration=0&preservationThreshold=0.2&prosperityThreshold=0.2&adjustmentPercent=0.1&applyInflationRule=true&useMinimumWithdrawal=false&useINSS=false&useBucketStrategy=false&useStudentT=true&degreesOfFreedom=8&useDynamicCorrelation=true&baseCorrelation=-0.35&stressCorrelationMultiplier=2&useIPCAModel=true&expectedIPCA=4&ipcaVolatility=2&realSpread=5.5&usdInflation=2.3&usdBondReturn=4.7&usdBondVolatility=6&useTaxModel=true&equityTaxRate=15&fixedIncomeTaxRate=15&useSpendingSmile=false&useRegimeSwitching=false&useSequenceConstraint=false&useAccumulation=false&spendingMode=rate&useMortalityAdjustment=true&mortalityGender=male&seed=42&initialPortfolioUSD=194174.757&initialPortfolioBRL=0&years=30&currentAge=65&tentInitialBondPercent=0&targetBondPercent=0&useGuytonKlinger=true&withdrawalRate=5&iterations=5000"
+    },
+    {
+      "horizonYears": 40,
+      "equityPercent": 60,
+      "usdPercent": 50,
+      "guytonKlinger": false,
+      "startAge": 55,
+      "swr": {
+        "raw90": {
+          "rate": 3.3,
+          "capped": false
+        },
+        "raw95": {
+          "rate": 3.2,
+          "capped": false
+        },
+        "adjusted90": {
+          "rate": 4.4,
+          "capped": false
+        },
+        "adjusted95": {
+          "rate": 4,
+          "capped": false
+        }
+      },
+      "simulatorQuery": "initialFX=5.15&equityReturn=6.5&equityVolatility=18&bondReturn=5.5&bondVolatility=3&inflation=4&tentDuration=0&preservationThreshold=0.2&prosperityThreshold=0.2&adjustmentPercent=0.1&applyInflationRule=true&useMinimumWithdrawal=false&useINSS=false&useBucketStrategy=false&useStudentT=true&degreesOfFreedom=8&useDynamicCorrelation=true&baseCorrelation=-0.35&stressCorrelationMultiplier=2&useIPCAModel=true&expectedIPCA=4&ipcaVolatility=2&realSpread=5.5&usdInflation=2.3&usdBondReturn=4.7&usdBondVolatility=6&useTaxModel=true&equityTaxRate=15&fixedIncomeTaxRate=15&useSpendingSmile=false&useRegimeSwitching=false&useSequenceConstraint=false&useAccumulation=false&spendingMode=rate&useMortalityAdjustment=true&mortalityGender=male&seed=42&initialPortfolioUSD=97087.379&initialPortfolioBRL=500000&years=40&currentAge=55&tentInitialBondPercent=40&targetBondPercent=40&useGuytonKlinger=false&withdrawalRate=3.2&iterations=5000"
+    },
+    {
+      "horizonYears": 40,
+      "equityPercent": 60,
+      "usdPercent": 50,
+      "guytonKlinger": true,
+      "startAge": 55,
+      "swr": {
+        "raw90": {
+          "rate": 6.5,
+          "capped": false
+        },
+        "raw95": {
+          "rate": 6.1,
+          "capped": false
+        },
+        "adjusted90": {
+          "rate": 8,
+          "capped": false
+        },
+        "adjusted95": {
+          "rate": 7.4,
+          "capped": false
+        }
+      },
+      "simulatorQuery": "initialFX=5.15&equityReturn=6.5&equityVolatility=18&bondReturn=5.5&bondVolatility=3&inflation=4&tentDuration=0&preservationThreshold=0.2&prosperityThreshold=0.2&adjustmentPercent=0.1&applyInflationRule=true&useMinimumWithdrawal=false&useINSS=false&useBucketStrategy=false&useStudentT=true&degreesOfFreedom=8&useDynamicCorrelation=true&baseCorrelation=-0.35&stressCorrelationMultiplier=2&useIPCAModel=true&expectedIPCA=4&ipcaVolatility=2&realSpread=5.5&usdInflation=2.3&usdBondReturn=4.7&usdBondVolatility=6&useTaxModel=true&equityTaxRate=15&fixedIncomeTaxRate=15&useSpendingSmile=false&useRegimeSwitching=false&useSequenceConstraint=false&useAccumulation=false&spendingMode=rate&useMortalityAdjustment=true&mortalityGender=male&seed=42&initialPortfolioUSD=97087.379&initialPortfolioBRL=500000&years=40&currentAge=55&tentInitialBondPercent=40&targetBondPercent=40&useGuytonKlinger=true&withdrawalRate=6.1&iterations=5000"
+    },
+    {
+      "horizonYears": 40,
+      "equityPercent": 60,
+      "usdPercent": 75,
+      "guytonKlinger": false,
+      "startAge": 55,
+      "swr": {
+        "raw90": {
+          "rate": 2.5,
+          "capped": false
+        },
+        "raw95": {
+          "rate": 2.2,
+          "capped": false
+        },
+        "adjusted90": {
+          "rate": 3.6,
+          "capped": false
+        },
+        "adjusted95": {
+          "rate": 3.2,
+          "capped": false
+        }
+      },
+      "simulatorQuery": "initialFX=5.15&equityReturn=6.5&equityVolatility=18&bondReturn=5.5&bondVolatility=3&inflation=4&tentDuration=0&preservationThreshold=0.2&prosperityThreshold=0.2&adjustmentPercent=0.1&applyInflationRule=true&useMinimumWithdrawal=false&useINSS=false&useBucketStrategy=false&useStudentT=true&degreesOfFreedom=8&useDynamicCorrelation=true&baseCorrelation=-0.35&stressCorrelationMultiplier=2&useIPCAModel=true&expectedIPCA=4&ipcaVolatility=2&realSpread=5.5&usdInflation=2.3&usdBondReturn=4.7&usdBondVolatility=6&useTaxModel=true&equityTaxRate=15&fixedIncomeTaxRate=15&useSpendingSmile=false&useRegimeSwitching=false&useSequenceConstraint=false&useAccumulation=false&spendingMode=rate&useMortalityAdjustment=true&mortalityGender=male&seed=42&initialPortfolioUSD=145631.068&initialPortfolioBRL=250000&years=40&currentAge=55&tentInitialBondPercent=40&targetBondPercent=40&useGuytonKlinger=false&withdrawalRate=2.2&iterations=5000"
+    },
+    {
+      "horizonYears": 40,
+      "equityPercent": 60,
+      "usdPercent": 75,
+      "guytonKlinger": true,
+      "startAge": 55,
+      "swr": {
+        "raw90": {
+          "rate": 6.4,
+          "capped": false
+        },
+        "raw95": {
+          "rate": 6,
+          "capped": false
+        },
+        "adjusted90": {
+          "rate": 7.8,
+          "capped": false
+        },
+        "adjusted95": {
+          "rate": 7.1,
+          "capped": false
+        }
+      },
+      "simulatorQuery": "initialFX=5.15&equityReturn=6.5&equityVolatility=18&bondReturn=5.5&bondVolatility=3&inflation=4&tentDuration=0&preservationThreshold=0.2&prosperityThreshold=0.2&adjustmentPercent=0.1&applyInflationRule=true&useMinimumWithdrawal=false&useINSS=false&useBucketStrategy=false&useStudentT=true&degreesOfFreedom=8&useDynamicCorrelation=true&baseCorrelation=-0.35&stressCorrelationMultiplier=2&useIPCAModel=true&expectedIPCA=4&ipcaVolatility=2&realSpread=5.5&usdInflation=2.3&usdBondReturn=4.7&usdBondVolatility=6&useTaxModel=true&equityTaxRate=15&fixedIncomeTaxRate=15&useSpendingSmile=false&useRegimeSwitching=false&useSequenceConstraint=false&useAccumulation=false&spendingMode=rate&useMortalityAdjustment=true&mortalityGender=male&seed=42&initialPortfolioUSD=145631.068&initialPortfolioBRL=250000&years=40&currentAge=55&tentInitialBondPercent=40&targetBondPercent=40&useGuytonKlinger=true&withdrawalRate=6&iterations=5000"
+    },
+    {
+      "horizonYears": 40,
+      "equityPercent": 60,
+      "usdPercent": 100,
+      "guytonKlinger": false,
+      "startAge": 55,
+      "swr": {
+        "raw90": {
+          "rate": 2.1,
+          "capped": false
+        },
+        "raw95": {
+          "rate": 1.9,
+          "capped": false
+        },
+        "adjusted90": {
+          "rate": 3.3,
+          "capped": false
+        },
+        "adjusted95": {
+          "rate": 2.8,
+          "capped": false
+        }
+      },
+      "simulatorQuery": "initialFX=5.15&equityReturn=6.5&equityVolatility=18&bondReturn=5.5&bondVolatility=3&inflation=4&tentDuration=0&preservationThreshold=0.2&prosperityThreshold=0.2&adjustmentPercent=0.1&applyInflationRule=true&useMinimumWithdrawal=false&useINSS=false&useBucketStrategy=false&useStudentT=true&degreesOfFreedom=8&useDynamicCorrelation=true&baseCorrelation=-0.35&stressCorrelationMultiplier=2&useIPCAModel=true&expectedIPCA=4&ipcaVolatility=2&realSpread=5.5&usdInflation=2.3&usdBondReturn=4.7&usdBondVolatility=6&useTaxModel=true&equityTaxRate=15&fixedIncomeTaxRate=15&useSpendingSmile=false&useRegimeSwitching=false&useSequenceConstraint=false&useAccumulation=false&spendingMode=rate&useMortalityAdjustment=true&mortalityGender=male&seed=42&initialPortfolioUSD=194174.757&initialPortfolioBRL=0&years=40&currentAge=55&tentInitialBondPercent=40&targetBondPercent=40&useGuytonKlinger=false&withdrawalRate=1.9&iterations=5000"
+    },
+    {
+      "horizonYears": 40,
+      "equityPercent": 60,
+      "usdPercent": 100,
+      "guytonKlinger": true,
+      "startAge": 55,
+      "swr": {
+        "raw90": {
+          "rate": 6.4,
+          "capped": false
+        },
+        "raw95": {
+          "rate": 6,
+          "capped": false
+        },
+        "adjusted90": {
+          "rate": 7.7,
+          "capped": false
+        },
+        "adjusted95": {
+          "rate": 7.1,
+          "capped": false
+        }
+      },
+      "simulatorQuery": "initialFX=5.15&equityReturn=6.5&equityVolatility=18&bondReturn=5.5&bondVolatility=3&inflation=4&tentDuration=0&preservationThreshold=0.2&prosperityThreshold=0.2&adjustmentPercent=0.1&applyInflationRule=true&useMinimumWithdrawal=false&useINSS=false&useBucketStrategy=false&useStudentT=true&degreesOfFreedom=8&useDynamicCorrelation=true&baseCorrelation=-0.35&stressCorrelationMultiplier=2&useIPCAModel=true&expectedIPCA=4&ipcaVolatility=2&realSpread=5.5&usdInflation=2.3&usdBondReturn=4.7&usdBondVolatility=6&useTaxModel=true&equityTaxRate=15&fixedIncomeTaxRate=15&useSpendingSmile=false&useRegimeSwitching=false&useSequenceConstraint=false&useAccumulation=false&spendingMode=rate&useMortalityAdjustment=true&mortalityGender=male&seed=42&initialPortfolioUSD=194174.757&initialPortfolioBRL=0&years=40&currentAge=55&tentInitialBondPercent=40&targetBondPercent=40&useGuytonKlinger=true&withdrawalRate=6&iterations=5000"
+    },
+    {
+      "horizonYears": 40,
+      "equityPercent": 80,
+      "usdPercent": 50,
+      "guytonKlinger": false,
+      "startAge": 55,
+      "swr": {
+        "raw90": {
+          "rate": 3.2,
+          "capped": false
+        },
+        "raw95": {
+          "rate": 3,
+          "capped": false
+        },
+        "adjusted90": {
+          "rate": 4.2,
+          "capped": false
+        },
+        "adjusted95": {
+          "rate": 3.9,
+          "capped": false
+        }
+      },
+      "simulatorQuery": "initialFX=5.15&equityReturn=6.5&equityVolatility=18&bondReturn=5.5&bondVolatility=3&inflation=4&tentDuration=0&preservationThreshold=0.2&prosperityThreshold=0.2&adjustmentPercent=0.1&applyInflationRule=true&useMinimumWithdrawal=false&useINSS=false&useBucketStrategy=false&useStudentT=true&degreesOfFreedom=8&useDynamicCorrelation=true&baseCorrelation=-0.35&stressCorrelationMultiplier=2&useIPCAModel=true&expectedIPCA=4&ipcaVolatility=2&realSpread=5.5&usdInflation=2.3&usdBondReturn=4.7&usdBondVolatility=6&useTaxModel=true&equityTaxRate=15&fixedIncomeTaxRate=15&useSpendingSmile=false&useRegimeSwitching=false&useSequenceConstraint=false&useAccumulation=false&spendingMode=rate&useMortalityAdjustment=true&mortalityGender=male&seed=42&initialPortfolioUSD=97087.379&initialPortfolioBRL=500000&years=40&currentAge=55&tentInitialBondPercent=20&targetBondPercent=20&useGuytonKlinger=false&withdrawalRate=3&iterations=5000"
+    },
+    {
+      "horizonYears": 40,
+      "equityPercent": 80,
+      "usdPercent": 50,
+      "guytonKlinger": true,
+      "startAge": 55,
+      "swr": {
+        "raw90": {
+          "rate": 6.2,
+          "capped": false
+        },
+        "raw95": {
+          "rate": 5.7,
+          "capped": false
+        },
+        "adjusted90": {
+          "rate": 7.7,
+          "capped": false
+        },
+        "adjusted95": {
+          "rate": 7.1,
+          "capped": false
+        }
+      },
+      "simulatorQuery": "initialFX=5.15&equityReturn=6.5&equityVolatility=18&bondReturn=5.5&bondVolatility=3&inflation=4&tentDuration=0&preservationThreshold=0.2&prosperityThreshold=0.2&adjustmentPercent=0.1&applyInflationRule=true&useMinimumWithdrawal=false&useINSS=false&useBucketStrategy=false&useStudentT=true&degreesOfFreedom=8&useDynamicCorrelation=true&baseCorrelation=-0.35&stressCorrelationMultiplier=2&useIPCAModel=true&expectedIPCA=4&ipcaVolatility=2&realSpread=5.5&usdInflation=2.3&usdBondReturn=4.7&usdBondVolatility=6&useTaxModel=true&equityTaxRate=15&fixedIncomeTaxRate=15&useSpendingSmile=false&useRegimeSwitching=false&useSequenceConstraint=false&useAccumulation=false&spendingMode=rate&useMortalityAdjustment=true&mortalityGender=male&seed=42&initialPortfolioUSD=97087.379&initialPortfolioBRL=500000&years=40&currentAge=55&tentInitialBondPercent=20&targetBondPercent=20&useGuytonKlinger=true&withdrawalRate=5.7&iterations=5000"
+    },
+    {
+      "horizonYears": 40,
+      "equityPercent": 80,
+      "usdPercent": 75,
+      "guytonKlinger": false,
+      "startAge": 55,
+      "swr": {
+        "raw90": {
+          "rate": 2.2,
+          "capped": false
+        },
+        "raw95": {
+          "rate": 1.9,
+          "capped": false
+        },
+        "adjusted90": {
+          "rate": 3.4,
+          "capped": false
+        },
+        "adjusted95": {
+          "rate": 2.9,
+          "capped": false
+        }
+      },
+      "simulatorQuery": "initialFX=5.15&equityReturn=6.5&equityVolatility=18&bondReturn=5.5&bondVolatility=3&inflation=4&tentDuration=0&preservationThreshold=0.2&prosperityThreshold=0.2&adjustmentPercent=0.1&applyInflationRule=true&useMinimumWithdrawal=false&useINSS=false&useBucketStrategy=false&useStudentT=true&degreesOfFreedom=8&useDynamicCorrelation=true&baseCorrelation=-0.35&stressCorrelationMultiplier=2&useIPCAModel=true&expectedIPCA=4&ipcaVolatility=2&realSpread=5.5&usdInflation=2.3&usdBondReturn=4.7&usdBondVolatility=6&useTaxModel=true&equityTaxRate=15&fixedIncomeTaxRate=15&useSpendingSmile=false&useRegimeSwitching=false&useSequenceConstraint=false&useAccumulation=false&spendingMode=rate&useMortalityAdjustment=true&mortalityGender=male&seed=42&initialPortfolioUSD=145631.068&initialPortfolioBRL=250000&years=40&currentAge=55&tentInitialBondPercent=20&targetBondPercent=20&useGuytonKlinger=false&withdrawalRate=1.9&iterations=5000"
+    },
+    {
+      "horizonYears": 40,
+      "equityPercent": 80,
+      "usdPercent": 75,
+      "guytonKlinger": true,
+      "startAge": 55,
+      "swr": {
+        "raw90": {
+          "rate": 6,
+          "capped": false
+        },
+        "raw95": {
+          "rate": 5.4,
+          "capped": false
+        },
+        "adjusted90": {
+          "rate": 7.4,
+          "capped": false
+        },
+        "adjusted95": {
+          "rate": 6.7,
+          "capped": false
+        }
+      },
+      "simulatorQuery": "initialFX=5.15&equityReturn=6.5&equityVolatility=18&bondReturn=5.5&bondVolatility=3&inflation=4&tentDuration=0&preservationThreshold=0.2&prosperityThreshold=0.2&adjustmentPercent=0.1&applyInflationRule=true&useMinimumWithdrawal=false&useINSS=false&useBucketStrategy=false&useStudentT=true&degreesOfFreedom=8&useDynamicCorrelation=true&baseCorrelation=-0.35&stressCorrelationMultiplier=2&useIPCAModel=true&expectedIPCA=4&ipcaVolatility=2&realSpread=5.5&usdInflation=2.3&usdBondReturn=4.7&usdBondVolatility=6&useTaxModel=true&equityTaxRate=15&fixedIncomeTaxRate=15&useSpendingSmile=false&useRegimeSwitching=false&useSequenceConstraint=false&useAccumulation=false&spendingMode=rate&useMortalityAdjustment=true&mortalityGender=male&seed=42&initialPortfolioUSD=145631.068&initialPortfolioBRL=250000&years=40&currentAge=55&tentInitialBondPercent=20&targetBondPercent=20&useGuytonKlinger=true&withdrawalRate=5.4&iterations=5000"
+    },
+    {
+      "horizonYears": 40,
+      "equityPercent": 80,
+      "usdPercent": 100,
+      "guytonKlinger": false,
+      "startAge": 55,
+      "swr": {
+        "raw90": {
+          "rate": 1.8,
+          "capped": false
+        },
+        "raw95": {
+          "rate": 1.4,
+          "capped": false
+        },
+        "adjusted90": {
+          "rate": 3,
+          "capped": false
+        },
+        "adjusted95": {
+          "rate": 2.5,
+          "capped": false
+        }
+      },
+      "simulatorQuery": "initialFX=5.15&equityReturn=6.5&equityVolatility=18&bondReturn=5.5&bondVolatility=3&inflation=4&tentDuration=0&preservationThreshold=0.2&prosperityThreshold=0.2&adjustmentPercent=0.1&applyInflationRule=true&useMinimumWithdrawal=false&useINSS=false&useBucketStrategy=false&useStudentT=true&degreesOfFreedom=8&useDynamicCorrelation=true&baseCorrelation=-0.35&stressCorrelationMultiplier=2&useIPCAModel=true&expectedIPCA=4&ipcaVolatility=2&realSpread=5.5&usdInflation=2.3&usdBondReturn=4.7&usdBondVolatility=6&useTaxModel=true&equityTaxRate=15&fixedIncomeTaxRate=15&useSpendingSmile=false&useRegimeSwitching=false&useSequenceConstraint=false&useAccumulation=false&spendingMode=rate&useMortalityAdjustment=true&mortalityGender=male&seed=42&initialPortfolioUSD=194174.757&initialPortfolioBRL=0&years=40&currentAge=55&tentInitialBondPercent=20&targetBondPercent=20&useGuytonKlinger=false&withdrawalRate=1.4&iterations=5000"
+    },
+    {
+      "horizonYears": 40,
+      "equityPercent": 80,
+      "usdPercent": 100,
+      "guytonKlinger": true,
+      "startAge": 55,
+      "swr": {
+        "raw90": {
+          "rate": 5.9,
+          "capped": false
+        },
+        "raw95": {
+          "rate": 5.3,
+          "capped": false
+        },
+        "adjusted90": {
+          "rate": 7.3,
+          "capped": false
+        },
+        "adjusted95": {
+          "rate": 6.6,
+          "capped": false
+        }
+      },
+      "simulatorQuery": "initialFX=5.15&equityReturn=6.5&equityVolatility=18&bondReturn=5.5&bondVolatility=3&inflation=4&tentDuration=0&preservationThreshold=0.2&prosperityThreshold=0.2&adjustmentPercent=0.1&applyInflationRule=true&useMinimumWithdrawal=false&useINSS=false&useBucketStrategy=false&useStudentT=true&degreesOfFreedom=8&useDynamicCorrelation=true&baseCorrelation=-0.35&stressCorrelationMultiplier=2&useIPCAModel=true&expectedIPCA=4&ipcaVolatility=2&realSpread=5.5&usdInflation=2.3&usdBondReturn=4.7&usdBondVolatility=6&useTaxModel=true&equityTaxRate=15&fixedIncomeTaxRate=15&useSpendingSmile=false&useRegimeSwitching=false&useSequenceConstraint=false&useAccumulation=false&spendingMode=rate&useMortalityAdjustment=true&mortalityGender=male&seed=42&initialPortfolioUSD=194174.757&initialPortfolioBRL=0&years=40&currentAge=55&tentInitialBondPercent=20&targetBondPercent=20&useGuytonKlinger=true&withdrawalRate=5.3&iterations=5000"
+    },
+    {
+      "horizonYears": 40,
+      "equityPercent": 100,
+      "usdPercent": 50,
+      "guytonKlinger": false,
+      "startAge": 55,
+      "swr": {
+        "raw90": {
+          "rate": 3,
+          "capped": false
+        },
+        "raw95": {
+          "rate": 2.9,
+          "capped": false
+        },
+        "adjusted90": {
+          "rate": 4,
+          "capped": false
+        },
+        "adjusted95": {
+          "rate": 3.7,
+          "capped": false
+        }
+      },
+      "simulatorQuery": "initialFX=5.15&equityReturn=6.5&equityVolatility=18&bondReturn=5.5&bondVolatility=3&inflation=4&tentDuration=0&preservationThreshold=0.2&prosperityThreshold=0.2&adjustmentPercent=0.1&applyInflationRule=true&useMinimumWithdrawal=false&useINSS=false&useBucketStrategy=false&useStudentT=true&degreesOfFreedom=8&useDynamicCorrelation=true&baseCorrelation=-0.35&stressCorrelationMultiplier=2&useIPCAModel=true&expectedIPCA=4&ipcaVolatility=2&realSpread=5.5&usdInflation=2.3&usdBondReturn=4.7&usdBondVolatility=6&useTaxModel=true&equityTaxRate=15&fixedIncomeTaxRate=15&useSpendingSmile=false&useRegimeSwitching=false&useSequenceConstraint=false&useAccumulation=false&spendingMode=rate&useMortalityAdjustment=true&mortalityGender=male&seed=42&initialPortfolioUSD=97087.379&initialPortfolioBRL=500000&years=40&currentAge=55&tentInitialBondPercent=0&targetBondPercent=0&useGuytonKlinger=false&withdrawalRate=2.9&iterations=5000"
+    },
+    {
+      "horizonYears": 40,
+      "equityPercent": 100,
+      "usdPercent": 50,
+      "guytonKlinger": true,
+      "startAge": 55,
+      "swr": {
+        "raw90": {
+          "rate": 5.6,
+          "capped": false
+        },
+        "raw95": {
+          "rate": 5,
+          "capped": false
+        },
+        "adjusted90": {
+          "rate": 7.3,
+          "capped": false
+        },
+        "adjusted95": {
+          "rate": 6.5,
+          "capped": false
+        }
+      },
+      "simulatorQuery": "initialFX=5.15&equityReturn=6.5&equityVolatility=18&bondReturn=5.5&bondVolatility=3&inflation=4&tentDuration=0&preservationThreshold=0.2&prosperityThreshold=0.2&adjustmentPercent=0.1&applyInflationRule=true&useMinimumWithdrawal=false&useINSS=false&useBucketStrategy=false&useStudentT=true&degreesOfFreedom=8&useDynamicCorrelation=true&baseCorrelation=-0.35&stressCorrelationMultiplier=2&useIPCAModel=true&expectedIPCA=4&ipcaVolatility=2&realSpread=5.5&usdInflation=2.3&usdBondReturn=4.7&usdBondVolatility=6&useTaxModel=true&equityTaxRate=15&fixedIncomeTaxRate=15&useSpendingSmile=false&useRegimeSwitching=false&useSequenceConstraint=false&useAccumulation=false&spendingMode=rate&useMortalityAdjustment=true&mortalityGender=male&seed=42&initialPortfolioUSD=97087.379&initialPortfolioBRL=500000&years=40&currentAge=55&tentInitialBondPercent=0&targetBondPercent=0&useGuytonKlinger=true&withdrawalRate=5&iterations=5000"
+    },
+    {
+      "horizonYears": 40,
+      "equityPercent": 100,
+      "usdPercent": 75,
+      "guytonKlinger": false,
+      "startAge": 55,
+      "swr": {
+        "raw90": {
+          "rate": 1.9,
+          "capped": false
+        },
+        "raw95": {
+          "rate": 1.7,
+          "capped": false
+        },
+        "adjusted90": {
+          "rate": 3,
+          "capped": false
+        },
+        "adjusted95": {
+          "rate": 2.5,
+          "capped": false
+        }
+      },
+      "simulatorQuery": "initialFX=5.15&equityReturn=6.5&equityVolatility=18&bondReturn=5.5&bondVolatility=3&inflation=4&tentDuration=0&preservationThreshold=0.2&prosperityThreshold=0.2&adjustmentPercent=0.1&applyInflationRule=true&useMinimumWithdrawal=false&useINSS=false&useBucketStrategy=false&useStudentT=true&degreesOfFreedom=8&useDynamicCorrelation=true&baseCorrelation=-0.35&stressCorrelationMultiplier=2&useIPCAModel=true&expectedIPCA=4&ipcaVolatility=2&realSpread=5.5&usdInflation=2.3&usdBondReturn=4.7&usdBondVolatility=6&useTaxModel=true&equityTaxRate=15&fixedIncomeTaxRate=15&useSpendingSmile=false&useRegimeSwitching=false&useSequenceConstraint=false&useAccumulation=false&spendingMode=rate&useMortalityAdjustment=true&mortalityGender=male&seed=42&initialPortfolioUSD=145631.068&initialPortfolioBRL=250000&years=40&currentAge=55&tentInitialBondPercent=0&targetBondPercent=0&useGuytonKlinger=false&withdrawalRate=1.7&iterations=5000"
+    },
+    {
+      "horizonYears": 40,
+      "equityPercent": 100,
+      "usdPercent": 75,
+      "guytonKlinger": true,
+      "startAge": 55,
+      "swr": {
+        "raw90": {
+          "rate": 5.2,
+          "capped": false
+        },
+        "raw95": {
+          "rate": 4.5,
+          "capped": false
+        },
+        "adjusted90": {
+          "rate": 6.8,
+          "capped": false
+        },
+        "adjusted95": {
+          "rate": 6,
+          "capped": false
+        }
+      },
+      "simulatorQuery": "initialFX=5.15&equityReturn=6.5&equityVolatility=18&bondReturn=5.5&bondVolatility=3&inflation=4&tentDuration=0&preservationThreshold=0.2&prosperityThreshold=0.2&adjustmentPercent=0.1&applyInflationRule=true&useMinimumWithdrawal=false&useINSS=false&useBucketStrategy=false&useStudentT=true&degreesOfFreedom=8&useDynamicCorrelation=true&baseCorrelation=-0.35&stressCorrelationMultiplier=2&useIPCAModel=true&expectedIPCA=4&ipcaVolatility=2&realSpread=5.5&usdInflation=2.3&usdBondReturn=4.7&usdBondVolatility=6&useTaxModel=true&equityTaxRate=15&fixedIncomeTaxRate=15&useSpendingSmile=false&useRegimeSwitching=false&useSequenceConstraint=false&useAccumulation=false&spendingMode=rate&useMortalityAdjustment=true&mortalityGender=male&seed=42&initialPortfolioUSD=145631.068&initialPortfolioBRL=250000&years=40&currentAge=55&tentInitialBondPercent=0&targetBondPercent=0&useGuytonKlinger=true&withdrawalRate=4.5&iterations=5000"
+    },
+    {
+      "horizonYears": 40,
+      "equityPercent": 100,
+      "usdPercent": 100,
+      "guytonKlinger": false,
+      "startAge": 55,
+      "swr": {
+        "raw90": {
+          "rate": 1.4,
+          "capped": false
+        },
+        "raw95": {
+          "rate": 1,
+          "capped": false
+        },
+        "adjusted90": {
+          "rate": 2.6,
+          "capped": false
+        },
+        "adjusted95": {
+          "rate": 2,
+          "capped": false
+        }
+      },
+      "simulatorQuery": "initialFX=5.15&equityReturn=6.5&equityVolatility=18&bondReturn=5.5&bondVolatility=3&inflation=4&tentDuration=0&preservationThreshold=0.2&prosperityThreshold=0.2&adjustmentPercent=0.1&applyInflationRule=true&useMinimumWithdrawal=false&useINSS=false&useBucketStrategy=false&useStudentT=true&degreesOfFreedom=8&useDynamicCorrelation=true&baseCorrelation=-0.35&stressCorrelationMultiplier=2&useIPCAModel=true&expectedIPCA=4&ipcaVolatility=2&realSpread=5.5&usdInflation=2.3&usdBondReturn=4.7&usdBondVolatility=6&useTaxModel=true&equityTaxRate=15&fixedIncomeTaxRate=15&useSpendingSmile=false&useRegimeSwitching=false&useSequenceConstraint=false&useAccumulation=false&spendingMode=rate&useMortalityAdjustment=true&mortalityGender=male&seed=42&initialPortfolioUSD=194174.757&initialPortfolioBRL=0&years=40&currentAge=55&tentInitialBondPercent=0&targetBondPercent=0&useGuytonKlinger=false&withdrawalRate=1&iterations=5000"
+    },
+    {
+      "horizonYears": 40,
+      "equityPercent": 100,
+      "usdPercent": 100,
+      "guytonKlinger": true,
+      "startAge": 55,
+      "swr": {
+        "raw90": {
+          "rate": 5.2,
+          "capped": false
+        },
+        "raw95": {
+          "rate": 4.4,
+          "capped": false
+        },
+        "adjusted90": {
+          "rate": 6.6,
+          "capped": false
+        },
+        "adjusted95": {
+          "rate": 5.9,
+          "capped": false
+        }
+      },
+      "simulatorQuery": "initialFX=5.15&equityReturn=6.5&equityVolatility=18&bondReturn=5.5&bondVolatility=3&inflation=4&tentDuration=0&preservationThreshold=0.2&prosperityThreshold=0.2&adjustmentPercent=0.1&applyInflationRule=true&useMinimumWithdrawal=false&useINSS=false&useBucketStrategy=false&useStudentT=true&degreesOfFreedom=8&useDynamicCorrelation=true&baseCorrelation=-0.35&stressCorrelationMultiplier=2&useIPCAModel=true&expectedIPCA=4&ipcaVolatility=2&realSpread=5.5&usdInflation=2.3&usdBondReturn=4.7&usdBondVolatility=6&useTaxModel=true&equityTaxRate=15&fixedIncomeTaxRate=15&useSpendingSmile=false&useRegimeSwitching=false&useSequenceConstraint=false&useAccumulation=false&spendingMode=rate&useMortalityAdjustment=true&mortalityGender=male&seed=42&initialPortfolioUSD=194174.757&initialPortfolioBRL=0&years=40&currentAge=55&tentInitialBondPercent=0&targetBondPercent=0&useGuytonKlinger=true&withdrawalRate=4.4&iterations=5000"
+    },
+    {
+      "horizonYears": 50,
+      "equityPercent": 60,
+      "usdPercent": 50,
+      "guytonKlinger": false,
+      "startAge": 45,
+      "swr": {
+        "raw90": {
+          "rate": 3,
+          "capped": false
+        },
+        "raw95": {
+          "rate": 2.9,
+          "capped": false
+        },
+        "adjusted90": {
+          "rate": 3.7,
+          "capped": false
+        },
+        "adjusted95": {
+          "rate": 3.4,
+          "capped": false
+        }
+      },
+      "simulatorQuery": "initialFX=5.15&equityReturn=6.5&equityVolatility=18&bondReturn=5.5&bondVolatility=3&inflation=4&tentDuration=0&preservationThreshold=0.2&prosperityThreshold=0.2&adjustmentPercent=0.1&applyInflationRule=true&useMinimumWithdrawal=false&useINSS=false&useBucketStrategy=false&useStudentT=true&degreesOfFreedom=8&useDynamicCorrelation=true&baseCorrelation=-0.35&stressCorrelationMultiplier=2&useIPCAModel=true&expectedIPCA=4&ipcaVolatility=2&realSpread=5.5&usdInflation=2.3&usdBondReturn=4.7&usdBondVolatility=6&useTaxModel=true&equityTaxRate=15&fixedIncomeTaxRate=15&useSpendingSmile=false&useRegimeSwitching=false&useSequenceConstraint=false&useAccumulation=false&spendingMode=rate&useMortalityAdjustment=true&mortalityGender=male&seed=42&initialPortfolioUSD=97087.379&initialPortfolioBRL=500000&years=50&currentAge=45&tentInitialBondPercent=40&targetBondPercent=40&useGuytonKlinger=false&withdrawalRate=2.9&iterations=5000"
+    },
+    {
+      "horizonYears": 50,
+      "equityPercent": 60,
+      "usdPercent": 50,
+      "guytonKlinger": true,
+      "startAge": 45,
+      "swr": {
+        "raw90": {
+          "rate": 6.1,
+          "capped": false
+        },
+        "raw95": {
+          "rate": 5.7,
+          "capped": false
+        },
+        "adjusted90": {
+          "rate": 7.1,
+          "capped": false
+        },
+        "adjusted95": {
+          "rate": 6.5,
+          "capped": false
+        }
+      },
+      "simulatorQuery": "initialFX=5.15&equityReturn=6.5&equityVolatility=18&bondReturn=5.5&bondVolatility=3&inflation=4&tentDuration=0&preservationThreshold=0.2&prosperityThreshold=0.2&adjustmentPercent=0.1&applyInflationRule=true&useMinimumWithdrawal=false&useINSS=false&useBucketStrategy=false&useStudentT=true&degreesOfFreedom=8&useDynamicCorrelation=true&baseCorrelation=-0.35&stressCorrelationMultiplier=2&useIPCAModel=true&expectedIPCA=4&ipcaVolatility=2&realSpread=5.5&usdInflation=2.3&usdBondReturn=4.7&usdBondVolatility=6&useTaxModel=true&equityTaxRate=15&fixedIncomeTaxRate=15&useSpendingSmile=false&useRegimeSwitching=false&useSequenceConstraint=false&useAccumulation=false&spendingMode=rate&useMortalityAdjustment=true&mortalityGender=male&seed=42&initialPortfolioUSD=97087.379&initialPortfolioBRL=500000&years=50&currentAge=45&tentInitialBondPercent=40&targetBondPercent=40&useGuytonKlinger=true&withdrawalRate=5.7&iterations=5000"
+    },
+    {
+      "horizonYears": 50,
+      "equityPercent": 60,
+      "usdPercent": 75,
+      "guytonKlinger": false,
+      "startAge": 45,
+      "swr": {
+        "raw90": {
+          "rate": 2.1,
+          "capped": false
+        },
+        "raw95": {
+          "rate": 1.9,
+          "capped": false
+        },
+        "adjusted90": {
+          "rate": 2.9,
+          "capped": false
+        },
+        "adjusted95": {
+          "rate": 2.6,
+          "capped": false
+        }
+      },
+      "simulatorQuery": "initialFX=5.15&equityReturn=6.5&equityVolatility=18&bondReturn=5.5&bondVolatility=3&inflation=4&tentDuration=0&preservationThreshold=0.2&prosperityThreshold=0.2&adjustmentPercent=0.1&applyInflationRule=true&useMinimumWithdrawal=false&useINSS=false&useBucketStrategy=false&useStudentT=true&degreesOfFreedom=8&useDynamicCorrelation=true&baseCorrelation=-0.35&stressCorrelationMultiplier=2&useIPCAModel=true&expectedIPCA=4&ipcaVolatility=2&realSpread=5.5&usdInflation=2.3&usdBondReturn=4.7&usdBondVolatility=6&useTaxModel=true&equityTaxRate=15&fixedIncomeTaxRate=15&useSpendingSmile=false&useRegimeSwitching=false&useSequenceConstraint=false&useAccumulation=false&spendingMode=rate&useMortalityAdjustment=true&mortalityGender=male&seed=42&initialPortfolioUSD=145631.068&initialPortfolioBRL=250000&years=50&currentAge=45&tentInitialBondPercent=40&targetBondPercent=40&useGuytonKlinger=false&withdrawalRate=1.9&iterations=5000"
+    },
+    {
+      "horizonYears": 50,
+      "equityPercent": 60,
+      "usdPercent": 75,
+      "guytonKlinger": true,
+      "startAge": 45,
+      "swr": {
+        "raw90": {
+          "rate": 6.1,
+          "capped": false
+        },
+        "raw95": {
+          "rate": 5.6,
+          "capped": false
+        },
+        "adjusted90": {
+          "rate": 6.9,
+          "capped": false
+        },
+        "adjusted95": {
+          "rate": 6.4,
+          "capped": false
+        }
+      },
+      "simulatorQuery": "initialFX=5.15&equityReturn=6.5&equityVolatility=18&bondReturn=5.5&bondVolatility=3&inflation=4&tentDuration=0&preservationThreshold=0.2&prosperityThreshold=0.2&adjustmentPercent=0.1&applyInflationRule=true&useMinimumWithdrawal=false&useINSS=false&useBucketStrategy=false&useStudentT=true&degreesOfFreedom=8&useDynamicCorrelation=true&baseCorrelation=-0.35&stressCorrelationMultiplier=2&useIPCAModel=true&expectedIPCA=4&ipcaVolatility=2&realSpread=5.5&usdInflation=2.3&usdBondReturn=4.7&usdBondVolatility=6&useTaxModel=true&equityTaxRate=15&fixedIncomeTaxRate=15&useSpendingSmile=false&useRegimeSwitching=false&useSequenceConstraint=false&useAccumulation=false&spendingMode=rate&useMortalityAdjustment=true&mortalityGender=male&seed=42&initialPortfolioUSD=145631.068&initialPortfolioBRL=250000&years=50&currentAge=45&tentInitialBondPercent=40&targetBondPercent=40&useGuytonKlinger=true&withdrawalRate=5.6&iterations=5000"
+    },
+    {
+      "horizonYears": 50,
+      "equityPercent": 60,
+      "usdPercent": 100,
+      "guytonKlinger": false,
+      "startAge": 45,
+      "swr": {
+        "raw90": {
+          "rate": 1.8,
+          "capped": false
+        },
+        "raw95": {
+          "rate": 1.6,
+          "capped": false
+        },
+        "adjusted90": {
+          "rate": 2.6,
+          "capped": false
+        },
+        "adjusted95": {
+          "rate": 2.2,
+          "capped": false
+        }
+      },
+      "simulatorQuery": "initialFX=5.15&equityReturn=6.5&equityVolatility=18&bondReturn=5.5&bondVolatility=3&inflation=4&tentDuration=0&preservationThreshold=0.2&prosperityThreshold=0.2&adjustmentPercent=0.1&applyInflationRule=true&useMinimumWithdrawal=false&useINSS=false&useBucketStrategy=false&useStudentT=true&degreesOfFreedom=8&useDynamicCorrelation=true&baseCorrelation=-0.35&stressCorrelationMultiplier=2&useIPCAModel=true&expectedIPCA=4&ipcaVolatility=2&realSpread=5.5&usdInflation=2.3&usdBondReturn=4.7&usdBondVolatility=6&useTaxModel=true&equityTaxRate=15&fixedIncomeTaxRate=15&useSpendingSmile=false&useRegimeSwitching=false&useSequenceConstraint=false&useAccumulation=false&spendingMode=rate&useMortalityAdjustment=true&mortalityGender=male&seed=42&initialPortfolioUSD=194174.757&initialPortfolioBRL=0&years=50&currentAge=45&tentInitialBondPercent=40&targetBondPercent=40&useGuytonKlinger=false&withdrawalRate=1.6&iterations=5000"
+    },
+    {
+      "horizonYears": 50,
+      "equityPercent": 60,
+      "usdPercent": 100,
+      "guytonKlinger": true,
+      "startAge": 45,
+      "swr": {
+        "raw90": {
+          "rate": 6,
+          "capped": false
+        },
+        "raw95": {
+          "rate": 5.6,
+          "capped": false
+        },
+        "adjusted90": {
+          "rate": 6.9,
+          "capped": false
+        },
+        "adjusted95": {
+          "rate": 6.4,
+          "capped": false
+        }
+      },
+      "simulatorQuery": "initialFX=5.15&equityReturn=6.5&equityVolatility=18&bondReturn=5.5&bondVolatility=3&inflation=4&tentDuration=0&preservationThreshold=0.2&prosperityThreshold=0.2&adjustmentPercent=0.1&applyInflationRule=true&useMinimumWithdrawal=false&useINSS=false&useBucketStrategy=false&useStudentT=true&degreesOfFreedom=8&useDynamicCorrelation=true&baseCorrelation=-0.35&stressCorrelationMultiplier=2&useIPCAModel=true&expectedIPCA=4&ipcaVolatility=2&realSpread=5.5&usdInflation=2.3&usdBondReturn=4.7&usdBondVolatility=6&useTaxModel=true&equityTaxRate=15&fixedIncomeTaxRate=15&useSpendingSmile=false&useRegimeSwitching=false&useSequenceConstraint=false&useAccumulation=false&spendingMode=rate&useMortalityAdjustment=true&mortalityGender=male&seed=42&initialPortfolioUSD=194174.757&initialPortfolioBRL=0&years=50&currentAge=45&tentInitialBondPercent=40&targetBondPercent=40&useGuytonKlinger=true&withdrawalRate=5.6&iterations=5000"
+    },
+    {
+      "horizonYears": 50,
+      "equityPercent": 80,
+      "usdPercent": 50,
+      "guytonKlinger": false,
+      "startAge": 45,
+      "swr": {
+        "raw90": {
+          "rate": 2.9,
+          "capped": false
+        },
+        "raw95": {
+          "rate": 2.8,
+          "capped": false
+        },
+        "adjusted90": {
+          "rate": 3.5,
+          "capped": false
+        },
+        "adjusted95": {
+          "rate": 3.3,
+          "capped": false
+        }
+      },
+      "simulatorQuery": "initialFX=5.15&equityReturn=6.5&equityVolatility=18&bondReturn=5.5&bondVolatility=3&inflation=4&tentDuration=0&preservationThreshold=0.2&prosperityThreshold=0.2&adjustmentPercent=0.1&applyInflationRule=true&useMinimumWithdrawal=false&useINSS=false&useBucketStrategy=false&useStudentT=true&degreesOfFreedom=8&useDynamicCorrelation=true&baseCorrelation=-0.35&stressCorrelationMultiplier=2&useIPCAModel=true&expectedIPCA=4&ipcaVolatility=2&realSpread=5.5&usdInflation=2.3&usdBondReturn=4.7&usdBondVolatility=6&useTaxModel=true&equityTaxRate=15&fixedIncomeTaxRate=15&useSpendingSmile=false&useRegimeSwitching=false&useSequenceConstraint=false&useAccumulation=false&spendingMode=rate&useMortalityAdjustment=true&mortalityGender=male&seed=42&initialPortfolioUSD=97087.379&initialPortfolioBRL=500000&years=50&currentAge=45&tentInitialBondPercent=20&targetBondPercent=20&useGuytonKlinger=false&withdrawalRate=2.8&iterations=5000"
+    },
+    {
+      "horizonYears": 50,
+      "equityPercent": 80,
+      "usdPercent": 50,
+      "guytonKlinger": true,
+      "startAge": 45,
+      "swr": {
+        "raw90": {
+          "rate": 5.7,
+          "capped": false
+        },
+        "raw95": {
+          "rate": 5.2,
+          "capped": false
+        },
+        "adjusted90": {
+          "rate": 6.8,
+          "capped": false
+        },
+        "adjusted95": {
+          "rate": 6.2,
+          "capped": false
+        }
+      },
+      "simulatorQuery": "initialFX=5.15&equityReturn=6.5&equityVolatility=18&bondReturn=5.5&bondVolatility=3&inflation=4&tentDuration=0&preservationThreshold=0.2&prosperityThreshold=0.2&adjustmentPercent=0.1&applyInflationRule=true&useMinimumWithdrawal=false&useINSS=false&useBucketStrategy=false&useStudentT=true&degreesOfFreedom=8&useDynamicCorrelation=true&baseCorrelation=-0.35&stressCorrelationMultiplier=2&useIPCAModel=true&expectedIPCA=4&ipcaVolatility=2&realSpread=5.5&usdInflation=2.3&usdBondReturn=4.7&usdBondVolatility=6&useTaxModel=true&equityTaxRate=15&fixedIncomeTaxRate=15&useSpendingSmile=false&useRegimeSwitching=false&useSequenceConstraint=false&useAccumulation=false&spendingMode=rate&useMortalityAdjustment=true&mortalityGender=male&seed=42&initialPortfolioUSD=97087.379&initialPortfolioBRL=500000&years=50&currentAge=45&tentInitialBondPercent=20&targetBondPercent=20&useGuytonKlinger=true&withdrawalRate=5.2&iterations=5000"
+    },
+    {
+      "horizonYears": 50,
+      "equityPercent": 80,
+      "usdPercent": 75,
+      "guytonKlinger": false,
+      "startAge": 45,
+      "swr": {
+        "raw90": {
+          "rate": 1.9,
+          "capped": false
+        },
+        "raw95": {
+          "rate": 1.7,
+          "capped": false
+        },
+        "adjusted90": {
+          "rate": 2.7,
+          "capped": false
+        },
+        "adjusted95": {
+          "rate": 2.3,
+          "capped": false
+        }
+      },
+      "simulatorQuery": "initialFX=5.15&equityReturn=6.5&equityVolatility=18&bondReturn=5.5&bondVolatility=3&inflation=4&tentDuration=0&preservationThreshold=0.2&prosperityThreshold=0.2&adjustmentPercent=0.1&applyInflationRule=true&useMinimumWithdrawal=false&useINSS=false&useBucketStrategy=false&useStudentT=true&degreesOfFreedom=8&useDynamicCorrelation=true&baseCorrelation=-0.35&stressCorrelationMultiplier=2&useIPCAModel=true&expectedIPCA=4&ipcaVolatility=2&realSpread=5.5&usdInflation=2.3&usdBondReturn=4.7&usdBondVolatility=6&useTaxModel=true&equityTaxRate=15&fixedIncomeTaxRate=15&useSpendingSmile=false&useRegimeSwitching=false&useSequenceConstraint=false&useAccumulation=false&spendingMode=rate&useMortalityAdjustment=true&mortalityGender=male&seed=42&initialPortfolioUSD=145631.068&initialPortfolioBRL=250000&years=50&currentAge=45&tentInitialBondPercent=20&targetBondPercent=20&useGuytonKlinger=false&withdrawalRate=1.7&iterations=5000"
+    },
+    {
+      "horizonYears": 50,
+      "equityPercent": 80,
+      "usdPercent": 75,
+      "guytonKlinger": true,
+      "startAge": 45,
+      "swr": {
+        "raw90": {
+          "rate": 5.6,
+          "capped": false
+        },
+        "raw95": {
+          "rate": 5.1,
+          "capped": false
+        },
+        "adjusted90": {
+          "rate": 6.6,
+          "capped": false
+        },
+        "adjusted95": {
+          "rate": 5.9,
+          "capped": false
+        }
+      },
+      "simulatorQuery": "initialFX=5.15&equityReturn=6.5&equityVolatility=18&bondReturn=5.5&bondVolatility=3&inflation=4&tentDuration=0&preservationThreshold=0.2&prosperityThreshold=0.2&adjustmentPercent=0.1&applyInflationRule=true&useMinimumWithdrawal=false&useINSS=false&useBucketStrategy=false&useStudentT=true&degreesOfFreedom=8&useDynamicCorrelation=true&baseCorrelation=-0.35&stressCorrelationMultiplier=2&useIPCAModel=true&expectedIPCA=4&ipcaVolatility=2&realSpread=5.5&usdInflation=2.3&usdBondReturn=4.7&usdBondVolatility=6&useTaxModel=true&equityTaxRate=15&fixedIncomeTaxRate=15&useSpendingSmile=false&useRegimeSwitching=false&useSequenceConstraint=false&useAccumulation=false&spendingMode=rate&useMortalityAdjustment=true&mortalityGender=male&seed=42&initialPortfolioUSD=145631.068&initialPortfolioBRL=250000&years=50&currentAge=45&tentInitialBondPercent=20&targetBondPercent=20&useGuytonKlinger=true&withdrawalRate=5.1&iterations=5000"
+    },
+    {
+      "horizonYears": 50,
+      "equityPercent": 80,
+      "usdPercent": 100,
+      "guytonKlinger": false,
+      "startAge": 45,
+      "swr": {
+        "raw90": {
+          "rate": 1.5,
+          "capped": false
+        },
+        "raw95": {
+          "rate": 1.2,
+          "capped": false
+        },
+        "adjusted90": {
+          "rate": 2.3,
+          "capped": false
+        },
+        "adjusted95": {
+          "rate": 1.8,
+          "capped": false
+        }
+      },
+      "simulatorQuery": "initialFX=5.15&equityReturn=6.5&equityVolatility=18&bondReturn=5.5&bondVolatility=3&inflation=4&tentDuration=0&preservationThreshold=0.2&prosperityThreshold=0.2&adjustmentPercent=0.1&applyInflationRule=true&useMinimumWithdrawal=false&useINSS=false&useBucketStrategy=false&useStudentT=true&degreesOfFreedom=8&useDynamicCorrelation=true&baseCorrelation=-0.35&stressCorrelationMultiplier=2&useIPCAModel=true&expectedIPCA=4&ipcaVolatility=2&realSpread=5.5&usdInflation=2.3&usdBondReturn=4.7&usdBondVolatility=6&useTaxModel=true&equityTaxRate=15&fixedIncomeTaxRate=15&useSpendingSmile=false&useRegimeSwitching=false&useSequenceConstraint=false&useAccumulation=false&spendingMode=rate&useMortalityAdjustment=true&mortalityGender=male&seed=42&initialPortfolioUSD=194174.757&initialPortfolioBRL=0&years=50&currentAge=45&tentInitialBondPercent=20&targetBondPercent=20&useGuytonKlinger=false&withdrawalRate=1.2&iterations=5000"
+    },
+    {
+      "horizonYears": 50,
+      "equityPercent": 80,
+      "usdPercent": 100,
+      "guytonKlinger": true,
+      "startAge": 45,
+      "swr": {
+        "raw90": {
+          "rate": 5.6,
+          "capped": false
+        },
+        "raw95": {
+          "rate": 5,
+          "capped": false
+        },
+        "adjusted90": {
+          "rate": 6.5,
+          "capped": false
+        },
+        "adjusted95": {
+          "rate": 5.8,
+          "capped": false
+        }
+      },
+      "simulatorQuery": "initialFX=5.15&equityReturn=6.5&equityVolatility=18&bondReturn=5.5&bondVolatility=3&inflation=4&tentDuration=0&preservationThreshold=0.2&prosperityThreshold=0.2&adjustmentPercent=0.1&applyInflationRule=true&useMinimumWithdrawal=false&useINSS=false&useBucketStrategy=false&useStudentT=true&degreesOfFreedom=8&useDynamicCorrelation=true&baseCorrelation=-0.35&stressCorrelationMultiplier=2&useIPCAModel=true&expectedIPCA=4&ipcaVolatility=2&realSpread=5.5&usdInflation=2.3&usdBondReturn=4.7&usdBondVolatility=6&useTaxModel=true&equityTaxRate=15&fixedIncomeTaxRate=15&useSpendingSmile=false&useRegimeSwitching=false&useSequenceConstraint=false&useAccumulation=false&spendingMode=rate&useMortalityAdjustment=true&mortalityGender=male&seed=42&initialPortfolioUSD=194174.757&initialPortfolioBRL=0&years=50&currentAge=45&tentInitialBondPercent=20&targetBondPercent=20&useGuytonKlinger=true&withdrawalRate=5&iterations=5000"
+    },
+    {
+      "horizonYears": 50,
+      "equityPercent": 100,
+      "usdPercent": 50,
+      "guytonKlinger": false,
+      "startAge": 45,
+      "swr": {
+        "raw90": {
+          "rate": 2.8,
+          "capped": false
+        },
+        "raw95": {
+          "rate": 2.7,
+          "capped": false
+        },
+        "adjusted90": {
+          "rate": 3.4,
+          "capped": false
+        },
+        "adjusted95": {
+          "rate": 3.1,
+          "capped": false
+        }
+      },
+      "simulatorQuery": "initialFX=5.15&equityReturn=6.5&equityVolatility=18&bondReturn=5.5&bondVolatility=3&inflation=4&tentDuration=0&preservationThreshold=0.2&prosperityThreshold=0.2&adjustmentPercent=0.1&applyInflationRule=true&useMinimumWithdrawal=false&useINSS=false&useBucketStrategy=false&useStudentT=true&degreesOfFreedom=8&useDynamicCorrelation=true&baseCorrelation=-0.35&stressCorrelationMultiplier=2&useIPCAModel=true&expectedIPCA=4&ipcaVolatility=2&realSpread=5.5&usdInflation=2.3&usdBondReturn=4.7&usdBondVolatility=6&useTaxModel=true&equityTaxRate=15&fixedIncomeTaxRate=15&useSpendingSmile=false&useRegimeSwitching=false&useSequenceConstraint=false&useAccumulation=false&spendingMode=rate&useMortalityAdjustment=true&mortalityGender=male&seed=42&initialPortfolioUSD=97087.379&initialPortfolioBRL=500000&years=50&currentAge=45&tentInitialBondPercent=0&targetBondPercent=0&useGuytonKlinger=false&withdrawalRate=2.7&iterations=5000"
+    },
+    {
+      "horizonYears": 50,
+      "equityPercent": 100,
+      "usdPercent": 50,
+      "guytonKlinger": true,
+      "startAge": 45,
+      "swr": {
+        "raw90": {
+          "rate": 5.1,
+          "capped": false
+        },
+        "raw95": {
+          "rate": 4.5,
+          "capped": false
+        },
+        "adjusted90": {
+          "rate": 6.3,
+          "capped": false
+        },
+        "adjusted95": {
+          "rate": 5.6,
+          "capped": false
+        }
+      },
+      "simulatorQuery": "initialFX=5.15&equityReturn=6.5&equityVolatility=18&bondReturn=5.5&bondVolatility=3&inflation=4&tentDuration=0&preservationThreshold=0.2&prosperityThreshold=0.2&adjustmentPercent=0.1&applyInflationRule=true&useMinimumWithdrawal=false&useINSS=false&useBucketStrategy=false&useStudentT=true&degreesOfFreedom=8&useDynamicCorrelation=true&baseCorrelation=-0.35&stressCorrelationMultiplier=2&useIPCAModel=true&expectedIPCA=4&ipcaVolatility=2&realSpread=5.5&usdInflation=2.3&usdBondReturn=4.7&usdBondVolatility=6&useTaxModel=true&equityTaxRate=15&fixedIncomeTaxRate=15&useSpendingSmile=false&useRegimeSwitching=false&useSequenceConstraint=false&useAccumulation=false&spendingMode=rate&useMortalityAdjustment=true&mortalityGender=male&seed=42&initialPortfolioUSD=97087.379&initialPortfolioBRL=500000&years=50&currentAge=45&tentInitialBondPercent=0&targetBondPercent=0&useGuytonKlinger=true&withdrawalRate=4.5&iterations=5000"
+    },
+    {
+      "horizonYears": 50,
+      "equityPercent": 100,
+      "usdPercent": 75,
+      "guytonKlinger": false,
+      "startAge": 45,
+      "swr": {
+        "raw90": {
+          "rate": 1.6,
+          "capped": false
+        },
+        "raw95": {
+          "rate": 1.5,
+          "capped": false
+        },
+        "adjusted90": {
+          "rate": 2.3,
+          "capped": false
+        },
+        "adjusted95": {
+          "rate": 2,
+          "capped": false
+        }
+      },
+      "simulatorQuery": "initialFX=5.15&equityReturn=6.5&equityVolatility=18&bondReturn=5.5&bondVolatility=3&inflation=4&tentDuration=0&preservationThreshold=0.2&prosperityThreshold=0.2&adjustmentPercent=0.1&applyInflationRule=true&useMinimumWithdrawal=false&useINSS=false&useBucketStrategy=false&useStudentT=true&degreesOfFreedom=8&useDynamicCorrelation=true&baseCorrelation=-0.35&stressCorrelationMultiplier=2&useIPCAModel=true&expectedIPCA=4&ipcaVolatility=2&realSpread=5.5&usdInflation=2.3&usdBondReturn=4.7&usdBondVolatility=6&useTaxModel=true&equityTaxRate=15&fixedIncomeTaxRate=15&useSpendingSmile=false&useRegimeSwitching=false&useSequenceConstraint=false&useAccumulation=false&spendingMode=rate&useMortalityAdjustment=true&mortalityGender=male&seed=42&initialPortfolioUSD=145631.068&initialPortfolioBRL=250000&years=50&currentAge=45&tentInitialBondPercent=0&targetBondPercent=0&useGuytonKlinger=false&withdrawalRate=1.5&iterations=5000"
+    },
+    {
+      "horizonYears": 50,
+      "equityPercent": 100,
+      "usdPercent": 75,
+      "guytonKlinger": true,
+      "startAge": 45,
+      "swr": {
+        "raw90": {
+          "rate": 4.8,
+          "capped": false
+        },
+        "raw95": {
+          "rate": 4.1,
+          "capped": false
+        },
+        "adjusted90": {
+          "rate": 5.9,
+          "capped": false
+        },
+        "adjusted95": {
+          "rate": 5.1,
+          "capped": false
+        }
+      },
+      "simulatorQuery": "initialFX=5.15&equityReturn=6.5&equityVolatility=18&bondReturn=5.5&bondVolatility=3&inflation=4&tentDuration=0&preservationThreshold=0.2&prosperityThreshold=0.2&adjustmentPercent=0.1&applyInflationRule=true&useMinimumWithdrawal=false&useINSS=false&useBucketStrategy=false&useStudentT=true&degreesOfFreedom=8&useDynamicCorrelation=true&baseCorrelation=-0.35&stressCorrelationMultiplier=2&useIPCAModel=true&expectedIPCA=4&ipcaVolatility=2&realSpread=5.5&usdInflation=2.3&usdBondReturn=4.7&usdBondVolatility=6&useTaxModel=true&equityTaxRate=15&fixedIncomeTaxRate=15&useSpendingSmile=false&useRegimeSwitching=false&useSequenceConstraint=false&useAccumulation=false&spendingMode=rate&useMortalityAdjustment=true&mortalityGender=male&seed=42&initialPortfolioUSD=145631.068&initialPortfolioBRL=250000&years=50&currentAge=45&tentInitialBondPercent=0&targetBondPercent=0&useGuytonKlinger=true&withdrawalRate=4.1&iterations=5000"
+    },
+    {
+      "horizonYears": 50,
+      "equityPercent": 100,
+      "usdPercent": 100,
+      "guytonKlinger": false,
+      "startAge": 45,
+      "swr": {
+        "raw90": {
+          "rate": 1.1,
+          "capped": false
+        },
+        "raw95": {
+          "rate": 0.7,
+          "capped": false
+        },
+        "adjusted90": {
+          "rate": 1.9,
+          "capped": false
+        },
+        "adjusted95": {
+          "rate": 1.4,
+          "capped": false
+        }
+      },
+      "simulatorQuery": "initialFX=5.15&equityReturn=6.5&equityVolatility=18&bondReturn=5.5&bondVolatility=3&inflation=4&tentDuration=0&preservationThreshold=0.2&prosperityThreshold=0.2&adjustmentPercent=0.1&applyInflationRule=true&useMinimumWithdrawal=false&useINSS=false&useBucketStrategy=false&useStudentT=true&degreesOfFreedom=8&useDynamicCorrelation=true&baseCorrelation=-0.35&stressCorrelationMultiplier=2&useIPCAModel=true&expectedIPCA=4&ipcaVolatility=2&realSpread=5.5&usdInflation=2.3&usdBondReturn=4.7&usdBondVolatility=6&useTaxModel=true&equityTaxRate=15&fixedIncomeTaxRate=15&useSpendingSmile=false&useRegimeSwitching=false&useSequenceConstraint=false&useAccumulation=false&spendingMode=rate&useMortalityAdjustment=true&mortalityGender=male&seed=42&initialPortfolioUSD=194174.757&initialPortfolioBRL=0&years=50&currentAge=45&tentInitialBondPercent=0&targetBondPercent=0&useGuytonKlinger=false&withdrawalRate=0.7&iterations=5000"
+    },
+    {
+      "horizonYears": 50,
+      "equityPercent": 100,
+      "usdPercent": 100,
+      "guytonKlinger": true,
+      "startAge": 45,
+      "swr": {
+        "raw90": {
+          "rate": 4.7,
+          "capped": false
+        },
+        "raw95": {
+          "rate": 4,
+          "capped": false
+        },
+        "adjusted90": {
+          "rate": 5.8,
+          "capped": false
+        },
+        "adjusted95": {
+          "rate": 5,
+          "capped": false
+        }
+      },
+      "simulatorQuery": "initialFX=5.15&equityReturn=6.5&equityVolatility=18&bondReturn=5.5&bondVolatility=3&inflation=4&tentDuration=0&preservationThreshold=0.2&prosperityThreshold=0.2&adjustmentPercent=0.1&applyInflationRule=true&useMinimumWithdrawal=false&useINSS=false&useBucketStrategy=false&useStudentT=true&degreesOfFreedom=8&useDynamicCorrelation=true&baseCorrelation=-0.35&stressCorrelationMultiplier=2&useIPCAModel=true&expectedIPCA=4&ipcaVolatility=2&realSpread=5.5&usdInflation=2.3&usdBondReturn=4.7&usdBondVolatility=6&useTaxModel=true&equityTaxRate=15&fixedIncomeTaxRate=15&useSpendingSmile=false&useRegimeSwitching=false&useSequenceConstraint=false&useAccumulation=false&spendingMode=rate&useMortalityAdjustment=true&mortalityGender=male&seed=42&initialPortfolioUSD=194174.757&initialPortfolioBRL=0&years=50&currentAge=45&tentInitialBondPercent=0&targetBondPercent=0&useGuytonKlinger=true&withdrawalRate=4&iterations=5000"
+    }
+  ]
+}
