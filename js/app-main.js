@@ -178,6 +178,12 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                     // (synchronous, potentially heavy) simulation batch runs.
                     await new Promise((r) => setTimeout(r, 50));
 
+                    // One seed for the SHTF run and the sweep, so a run
+                    // without a numeric params.seed is still reproducible
+                    // from the seed the sweep reports.
+                    const engine = new MonteCarloEngine(params);
+                    const seed = engine.getSeed();
+
                     // "Se parar hoje" (SHTF) baseline: zero extra years
                     // worked, spending at the user's actual target — the
                     // horizon mirrors sweep row n=0 (age today -> 100).
@@ -191,6 +197,7 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                         accumulationYears: 0,
                         years: horizonYears,
                         spendingMode: "target",
+                        seed,
                     };
                     const shtfEngine = new MonteCarloEngine(shtfParams);
                     const shtfRun = shtfEngine.runMonteCarlo(3500);
@@ -201,7 +208,6 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                             shtfRun.survivalRate,
                     });
 
-                    const engine = new MonteCarloEngine(params);
                     const sweep = await engine.runRetirementAgeSweep({
                         ...sweepOptions,
                         onProgress: (p) => setProjectionProgress(p),
