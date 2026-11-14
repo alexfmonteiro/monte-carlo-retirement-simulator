@@ -1988,6 +1988,27 @@
                 }
                 assert(sawWithdrawal, 'expected at least one positive withdrawal after retirement boundary');
             });
+
+            tf.it('periodStats split early/mid/late over retirement years only', () => {
+                const engine = new MonteCarloEngine(baseParams);
+                const sims = Array.from({ length: 50 }, () => engine.runSimulation());
+                const { periodStats } = engine.analyzeResults(sims);
+                const income = (s, i) => (s.withdrawalBRL[i] || 0) + (s.inssIncomeBRL[i] || 0);
+                const meanOver = (from, to) => {
+                    const vals = sims.flatMap(s => {
+                        const out = [];
+                        for (let i = from; i < to; i++) out.push(income(s, i));
+                        return out;
+                    }).filter(v => v > 0);
+                    return vals.reduce((a, b) => a + b, 0) / vals.length;
+                };
+                const early = n + Math.floor(retirementYears / 3);
+                const mid = n + Math.floor((2 * retirementYears) / 3);
+                const end = n + retirementYears + 1;
+                assertAlmostEqual(periodStats.early.mean, meanOver(n, early), 1e-6, 'early mean');
+                assertAlmostEqual(periodStats.mid.mean, meanOver(early, mid), 1e-6, 'mid mean');
+                assertAlmostEqual(periodStats.late.mean, meanOver(mid, end), 1e-6, 'late mean');
+            });
         });
 
         tf.describe('Accumulation Phase: Spending-Target Mode', () => {
