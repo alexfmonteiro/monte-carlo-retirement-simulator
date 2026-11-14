@@ -185,12 +185,8 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                         1,
                         100 - (params.currentAge || 60),
                     );
-                    // One seed for the SHTF card and the sweep, so the
-                    // seed shown on the tab reproduces both.
-                    const engine = new MonteCarloEngine(params);
                     const shtfParams = {
                         ...params,
-                        seed: engine.getSeed(),
                         useAccumulation: true,
                         accumulationYears: 0,
                         years: horizonYears,
@@ -205,6 +201,7 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                             shtfRun.survivalRate,
                     });
 
+                    const engine = new MonteCarloEngine(params);
                     const sweep = await engine.runRetirementAgeSweep({
                         ...sweepOptions,
                         onProgress: (p) => setProjectionProgress(p),
