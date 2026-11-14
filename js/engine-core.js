@@ -577,6 +577,9 @@ class MonteCarloEngine {
                     ? currentWithdrawalBRL / boundaryPortfolioBRL
                     : 0;
         }
+        // First withdrawal as sized at retirement start (nominal BRL), before
+        // any G-K, smile or minimum adjustment.
+        history.initialWithdrawalBRL = currentWithdrawalBRL;
 
         for (let year = 1; year <= years; year++) {
             const totalYear = accYears + year;
@@ -1411,6 +1414,17 @@ class MonteCarloEngine {
                   ]
                 : 0;
 
+        // Median first withdrawal at retirement start (boundary portfolio
+        // and spending mode included). Undefined when no sim records it.
+        const initialWithdrawals = simulations
+            .map((s) => s.initialWithdrawalBRL)
+            .filter((w) => Number.isFinite(w))
+            .sort((a, b) => a - b);
+        const medianInitialWithdrawalBRL =
+            initialWithdrawals.length > 0
+                ? initialWithdrawals[Math.floor(initialWithdrawals.length / 2)]
+                : undefined;
+
         // Withdrawal stats by period (early, mid, late)
         const earlyYears = Math.floor(years / 3);
         const midYears = Math.floor((2 * years) / 3);
@@ -1574,6 +1588,7 @@ class MonteCarloEngine {
             worstWithdrawal,
             overallMeanWithdrawal,
             overallMedianWithdrawal,
+            medianInitialWithdrawalBRL,
             periodStats,
             medianFinalPortfolio: medianFinal,
             bestFinalPortfolio: bestFinal,

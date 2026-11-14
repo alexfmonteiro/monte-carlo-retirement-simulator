@@ -2061,6 +2061,55 @@
             });
         });
 
+        tf.describe('Initial Withdrawal Reporting', () => {
+            const base = (overrides) => ({
+                ...getDefaultParams(),
+                seed: 41,
+                useIPCAModel: false,
+                inflation: 4.5,
+                years: 10,
+                ...overrides,
+            });
+
+            tf.it('history.initialWithdrawalBRL is withdrawalRate% of the boundary portfolio', () => {
+                const n = 3;
+                const h = new MonteCarloEngine(base({
+                    useAccumulation: true, accumulationYears: n,
+                    monthlyContributionBRL: 7000, spendingMode: 'rate', withdrawalRate: 4.0,
+                })).runSimulation();
+                const expected = h.portfolioBRL[n] * 0.04;
+                assert(Number.isFinite(h.initialWithdrawalBRL), `initialWithdrawalBRL not finite: ${h.initialWithdrawalBRL}`);
+                assertAlmostEqual(h.initialWithdrawalBRL, expected, Math.max(1, expected * 1e-9),
+                    `expected ${expected}, got ${h.initialWithdrawalBRL}`);
+            });
+
+            tf.it('medianInitialWithdrawalBRL in target mode with accumulation is target x cumulative IPCA', () => {
+                const n = 5;
+                const targetSpendingBRL = 150000;
+                const engine = new MonteCarloEngine(base({
+                    useAccumulation: true, accumulationYears: n,
+                    monthlyContributionBRL: 6000, spendingMode: 'target', targetSpendingBRL,
+                }));
+                const results = engine.runMonteCarlo(50);
+                const expected = targetSpendingBRL * Math.pow(1.045, n);
+                assert(Number.isFinite(results.medianInitialWithdrawalBRL), `not finite: ${results.medianInitialWithdrawalBRL}`);
+                assertAlmostEqual(results.medianInitialWithdrawalBRL, expected, expected * 1e-9,
+                    `expected ${expected}, got ${results.medianInitialWithdrawalBRL}`);
+            });
+
+            tf.it('medianInitialWithdrawalBRL counts the BRL sleeve without accumulation', () => {
+                const params = base({
+                    initialPortfolioUSD: 100000, initialFX: 5, initialPortfolioBRL: 200000,
+                    spendingMode: 'rate', withdrawalRate: 4.0,
+                });
+                const results = new MonteCarloEngine(params).runMonteCarlo(20);
+                const expected = (100000 * 5 + 200000) * 0.04;
+                assert(Number.isFinite(results.medianInitialWithdrawalBRL), `not finite: ${results.medianInitialWithdrawalBRL}`);
+                assertAlmostEqual(results.medianInitialWithdrawalBRL, expected, 1e-6,
+                    `expected ${expected}, got ${results.medianInitialWithdrawalBRL}`);
+            });
+        });
+
         tf.describe('Historical Backtest: Spending-Target Mode', () => {
             const startIdx = 5;
             const histParams = (overrides) => ({
