@@ -54,10 +54,27 @@ MonteCarloEngine.prototype.runHistoricalBacktest = function(startIdx, simYears) 
     let bondPortionUSD = portfolioUSD * bondAllocation;
     let equityPortionUSD = portfolioUSD * equityAllocation;
 
-    // Spending target in BRL, adjusted by Guyton-Klinger + inflation
+    // Spending target in BRL, adjusted by Guyton-Klinger + inflation.
+    // Target mode mirrors runSimulation() (cumulativeIpcaFactor === 1 at
+    // window start). Accumulation is not simulated here: with it on, the
+    // backtest starts at retirement and keeps rate-based sizing.
     const totalInitialPortfolioBRL = portfolioUSD * currentFX + initialPortfolioBRL;
-    let currentWithdrawalBRL = totalInitialPortfolioBRL * (withdrawalRate / 100);
-    const initialWithdrawalRate = withdrawalRate / 100;
+    const accumulating =
+        this.params.useAccumulation && this.params.accumulationYears > 0;
+    const useTargetSpending =
+        this.params.spendingMode === "target" && !accumulating;
+    let currentWithdrawalBRL;
+    let initialWithdrawalRate;
+    if (useTargetSpending) {
+        currentWithdrawalBRL = this.params.targetSpendingBRL || 0;
+        initialWithdrawalRate =
+            totalInitialPortfolioBRL > 0
+                ? currentWithdrawalBRL / totalInitialPortfolioBRL
+                : 0;
+    } else {
+        currentWithdrawalBRL = totalInitialPortfolioBRL * (withdrawalRate / 100);
+        initialWithdrawalRate = withdrawalRate / 100;
+    }
 
     let previousReturn = 0;
     let cumulativeIpcaFactor = 1.0;

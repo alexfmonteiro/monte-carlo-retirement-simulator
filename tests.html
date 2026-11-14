@@ -122,8 +122,11 @@
 
     <script src="js/rng.js"></script>
     <script src="js/mortality-data.js"></script>
+    <script src="js/historical-data.js"></script>
     <script src="js/engine-core.js"></script>
     <script src="js/engine-projection.js"></script>
+    <script src="js/engine-historical.js"></script>
+    <script src="js/engine-endowment.js"></script>
     <script>
         // ============================================
         // MINIMAL TEST FRAMEWORK (Zero Dependencies)
@@ -2058,6 +2061,49 @@
             });
         });
 
+        tf.describe('Historical Backtest: Spending-Target Mode', () => {
+            const startIdx = 5;
+            const histParams = (overrides) => ({
+                ...getDefaultParams(),
+                useGuytonKlinger: false, // isolate the first-year sizing from G-K rule triggers
+                useSpendingSmile: false,
+                useINSS: false,
+                useMinimumWithdrawal: false,
+                years: 10,
+                ...overrides,
+            });
+
+            tf.it('first-year withdrawal equals targetSpendingBRL x that year\'s IPCA', () => {
+                const targetSpendingBRL = 150000;
+                const engine = new MonteCarloEngine(histParams({ spendingMode: 'target', targetSpendingBRL }));
+                const h = engine.runHistoricalBacktest(startIdx, 10);
+                const expected = targetSpendingBRL * (1 + HISTORICAL_DATA.ipca[startIdx]);
+                assertAlmostEqual(h.withdrawalBRL[0], targetSpendingBRL, 1e-6,
+                    `initial withdrawal should be ${targetSpendingBRL}, got ${h.withdrawalBRL[0]}`);
+                assertAlmostEqual(h.recommendedWithdrawalBRL[1], expected, 1e-6,
+                    `first-year withdrawal should be ${expected.toFixed(2)}, got ${h.recommendedWithdrawalBRL[1].toFixed(2)}`);
+            });
+
+            tf.it('rate mode sizes the first withdrawal as withdrawalRate% of the initial portfolio', () => {
+                const params = histParams({ spendingMode: 'rate', withdrawalRate: 4.0, targetSpendingBRL: 150000 });
+                const h = new MonteCarloEngine(params).runHistoricalBacktest(startIdx, 10);
+                const expected = h.portfolioBRL[0] * (params.withdrawalRate / 100);
+                assertAlmostEqual(h.withdrawalBRL[0], expected, 1e-6,
+                    `initial withdrawal should be ${expected.toFixed(2)}, got ${h.withdrawalBRL[0].toFixed(2)}`);
+            });
+
+            tf.it('target mode with accumulation on keeps rate-based sizing', () => {
+                const params = histParams({
+                    spendingMode: 'target', targetSpendingBRL: 150000, withdrawalRate: 4.0,
+                    useAccumulation: true, accumulationYears: 5,
+                });
+                const h = new MonteCarloEngine(params).runHistoricalBacktest(startIdx, 10);
+                const expected = h.portfolioBRL[0] * (params.withdrawalRate / 100);
+                assertAlmostEqual(h.withdrawalBRL[0], expected, 1e-6,
+                    `initial withdrawal should be ${expected.toFixed(2)}, got ${h.withdrawalBRL[0].toFixed(2)}`);
+            });
+        });
+
         tf.describe('Optimizer: Engine Helpers', () => {
             const helperParams = {
                 ...getDefaultParams(),
@@ -2201,6 +2247,41 @@
             });
         });
 
+        tf.describe('Retirement-Age Sweep: Sidebar Options', () => {
+            tf.it('defaults reproduce the hardcoded sweep criteria and range', () => {
+                const opts = MonteCarloEngine.projectionSweepOptions(getDefaultParams());
+                assertEqual(opts.maxExtraYears, 10, 'default maxExtraYears');
+                assertEqual(opts.criteria.rawSurvival, 83, 'default rawSurvival');
+                assertEqual(opts.criteria.adjustedSurvival, 96.5, 'default adjustedSurvival');
+            });
+
+            tf.it('passes user values through and clamps out-of-range ones', () => {
+                const ok = MonteCarloEngine.projectionSweepOptions({
+                    projectionRawSurvival: 90,
+                    projectionAdjustedSurvival: 99,
+                    projectionMaxExtraYears: 5,
+                });
+                assertEqual(ok.criteria.rawSurvival, 90, 'rawSurvival passthrough');
+                assertEqual(ok.criteria.adjustedSurvival, 99, 'adjustedSurvival passthrough');
+                assertEqual(ok.maxExtraYears, 5, 'maxExtraYears passthrough');
+
+                const out = MonteCarloEngine.projectionSweepOptions({
+                    projectionRawSurvival: 10,
+                    projectionAdjustedSurvival: 120,
+                    projectionMaxExtraYears: 7.6,
+                });
+                assertEqual(out.criteria.rawSurvival, 50, 'rawSurvival clamped to 50');
+                assertEqual(out.criteria.adjustedSurvival, 99.9, 'adjustedSurvival clamped to 99.9');
+                assertEqual(out.maxExtraYears, 8, 'maxExtraYears rounded');
+
+                const big = MonteCarloEngine.projectionSweepOptions({ projectionMaxExtraYears: 0 });
+                assertEqual(big.maxExtraYears, 1, 'maxExtraYears clamped to 1');
+                assertEqual(
+                    MonteCarloEngine.projectionSweepOptions({ projectionMaxExtraYears: 50 }).maxExtraYears,
+                    20, 'maxExtraYears clamped to 20');
+            });
+        });
+
         tf.describe('Retirement-Age Sweep: Monotonicity', () => {
             tf.it('sustainable SWR is non-decreasing (within tolerance) as extra years worked increases', async () => {
                 const params = {
@@ -2302,6 +2383,258 @@
                 });
                 assert(belowFloor, 'belowFloor should be true for an unreachable target');
                 assertEqual(swr, 0.5, 'SWR should fall back to the 0.5% floor');
+            });
+        });
+
+        tf.describe('Retirement-Age Sweep: Seed', () => {
+            const sweepParams = () => ({
+                ...getDefaultParams(),
+                currentAge: 60,
+                targetSpendingBRL: 120000,
+                monthlyContributionBRL: 6000,
+                contributionSplitUSD: 80,
+                initialPortfolioUSD: 400000,
+                initialPortfolioBRL: 300000,
+                years: 30,
+            });
+            const sweepOpts = { maxExtraYears: 1, probeIterations: 60, confirmIterations: 80 };
+
+            tf.it('the same seed reproduces the sweep exactly', async () => {
+                const a = await new MonteCarloEngine({ ...sweepParams(), seed: 4242 }).runRetirementAgeSweep(sweepOpts);
+                const b = await new MonteCarloEngine({ ...sweepParams(), seed: 4242 }).runRetirementAgeSweep(sweepOpts);
+                assertEqual(JSON.stringify(a.byAge), JSON.stringify(b.byAge), 'sweep results differ for the same seed');
+            });
+
+            tf.it('every bisection probe runs with the user seed', async () => {
+                const engine = new MonteCarloEngine({ ...sweepParams(), seed: 4242 });
+                const seeds = [];
+                const original = engine._bisectSWR;
+                engine._bisectSWR = function (baseParams, targetRate, getSurvival, opts) {
+                    seeds.push(opts.seed);
+                    return original.call(this, baseParams, targetRate, getSurvival, opts);
+                };
+                await engine.runRetirementAgeSweep(sweepOpts);
+                assertEqual(seeds.length, 4, `expected 4 bisections, got ${seeds.length}`);
+                seeds.forEach((s, i) => assertEqual(s, 4242, `bisection ${i} got seed ${s}`));
+            });
+
+            tf.it('empty seed: all bisections share the engine seed', async () => {
+                const engine = new MonteCarloEngine({ ...sweepParams(), seed: null });
+                const seeds = [];
+                const original = engine._bisectSWR;
+                engine._bisectSWR = function (baseParams, targetRate, getSurvival, opts) {
+                    seeds.push(opts.seed);
+                    return original.call(this, baseParams, targetRate, getSurvival, opts);
+                };
+                await engine.runRetirementAgeSweep(sweepOpts);
+                seeds.forEach((s, i) => assertEqual(s, engine.getSeed(), `bisection ${i} got seed ${s}`));
+            });
+        });
+
+        // ============================================
+        // HISTORICAL BACKTEST
+        // ============================================
+
+        tf.describe('Historical Backtest: Rolling Windows', () => {
+            const assertAllFinite = (arr, label) => {
+                arr.forEach((v, i) => assert(Number.isFinite(v), `${label}[${i}] is not finite: ${v}`));
+            };
+
+            tf.it('returns one window per start year with at least 5 years of data', () => {
+                const windows = new MonteCarloEngine(getDefaultParams()).runAllHistoricalWindows();
+                const years = HISTORICAL_DATA.years;
+                assertEqual(windows.length, years.length - 4, `expected ${years.length - 4} windows, got ${windows.length}`);
+                windows.forEach((w, i) => {
+                    assertEqual(w.startYear, years[i], `window ${i} should start in ${years[i]}, got ${w.startYear}`);
+                    assertEqual(w.windowYears, Math.min(30, years.length - i), `window ${w.startYear} has wrong length`);
+                    assertEqual(w.portfolioBRL.length, w.windowYears + 1, `window ${w.startYear} history length mismatch`);
+                });
+            });
+
+            tf.it('every window and the analysis contain only finite numbers', () => {
+                const engine = new MonteCarloEngine({
+                    ...getDefaultParams(),
+                    initialPortfolioBRL: 2000000,
+                    useTaxModel: true,
+                    useMinimumWithdrawal: true,
+                    minimumWithdrawalBRL: 150000,
+                });
+                const windows = engine.runAllHistoricalWindows();
+                for (const w of windows) {
+                    const tag = `window ${w.startYear}`;
+                    assertAllFinite(w.portfolioUSD, `${tag} portfolioUSD`);
+                    assertAllFinite(w.portfolioBRL, `${tag} portfolioBRL`);
+                    assertAllFinite(w.withdrawalBRL, `${tag} withdrawalBRL`);
+                    assertAllFinite(w.withdrawalUSD, `${tag} withdrawalUSD`);
+                    assertAllFinite(w.fxRate, `${tag} fxRate`);
+                    assertAllFinite(w.cumulativeIpcaFactor, `${tag} cumulativeIpcaFactor`);
+                }
+                const analysis = engine.analyzeHistoricalResults(windows);
+                assert(Number.isFinite(analysis.survivalRate), 'survivalRate not finite');
+                assert(Number.isFinite(analysis.medianWithdrawal), 'medianWithdrawal not finite');
+                for (const key of ['p10', 'p25', 'p50', 'p75', 'p90']) {
+                    assertAllFinite(analysis.portfolioByYear[key], `portfolioByYear.${key}`);
+                }
+                assertAllFinite(analysis.withdrawalByYear.mean, 'withdrawalByYear.mean');
+            });
+        });
+
+        tf.describe('Historical Backtest: BRL-Only Portfolio', () => {
+            const brlOnlyParams = (overrides) => ({
+                ...getDefaultParams(),
+                initialPortfolioUSD: 0,
+                initialPortfolioBRL: 5000000,
+                years: 10,
+                ...overrides,
+            });
+
+            tf.it('funds withdrawals from the BRL sleeve and keeps the USD sleeve at zero', () => {
+                const windows = new MonteCarloEngine(brlOnlyParams()).runAllHistoricalWindows();
+                for (const w of windows) {
+                    assert(!w.failed, `window ${w.startYear} should survive at a 4.7% rate`);
+                    assert(w.portfolioUSD.every(v => v === 0), `window ${w.startYear} USD sleeve should stay 0`);
+                    assert(w.portfolioBRL.every(v => Number.isFinite(v) && v > 0),
+                        `window ${w.startYear} BRL portfolio should stay positive and finite`);
+                    for (let t = 1; t < w.withdrawalSource.length; t++) {
+                        assertEqual(w.withdrawalSource[t], 'brl_fixed',
+                            `window ${w.startYear} year ${t} source should be brl_fixed, got ${w.withdrawalSource[t]}`);
+                    }
+                }
+            });
+
+            tf.it('fails only in the year the total portfolio is depleted', () => {
+                const windows = new MonteCarloEngine(brlOnlyParams({
+                    withdrawalRate: 30,
+                    useGuytonKlinger: false,
+                })).runAllHistoricalWindows();
+                const failed = windows.filter(w => w.failed);
+                assertGreaterThan(failed.length, 0, 'a 30% fixed withdrawal should deplete at least one window');
+                for (const w of failed) {
+                    const fy = w.failureYear;
+                    assertEqual(w.portfolioBRL[fy], 0, `window ${w.startYear} should be empty in failure year ${fy}`);
+                    for (let t = 0; t < fy; t++) {
+                        assertGreaterThan(w.portfolioBRL[t], 0,
+                            `window ${w.startYear} year ${t} should still hold money before failure year ${fy}`);
+                    }
+                }
+            });
+        });
+
+        tf.describe('Historical Backtest: BRL Spending Denomination', () => {
+            tf.it('withdrawal tracks the initial BRL withdrawal times cumulative historical IPCA', () => {
+                const startIdx = 3; // 1998: covers the 1999 BRL devaluation
+                const simYears = 10;
+                const engine = new MonteCarloEngine({
+                    ...getDefaultParams(),
+                    initialPortfolioBRL: 1000000,
+                    useGuytonKlinger: false,
+                    useMinimumWithdrawal: false,
+                    useSpendingSmile: false,
+                    useINSS: false,
+                    years: simYears,
+                });
+                const h = engine.runHistoricalBacktest(startIdx, simYears);
+                assert(!h.failed, 'window should not fail at a 4.7% rate');
+                let cumulativeIpca = 1;
+                for (let t = 1; t <= simYears; t++) {
+                    cumulativeIpca *= 1 + HISTORICAL_DATA.ipca[startIdx + t - 1];
+                    const expected = h.withdrawalBRL[0] * cumulativeIpca;
+                    assertAlmostEqual(h.withdrawalBRL[t], expected, expected * 1e-9,
+                        `year ${t}: expected ${expected.toFixed(2)}, got ${h.withdrawalBRL[t].toFixed(2)}`);
+                }
+            });
+        });
+
+        tf.describe('Historical Backtest: Worst Window', () => {
+            tf.it('worst complete window by real final balance starts in the 1997-2002 crisis period', () => {
+                // initialFX ~ end-1994 BRL/USD, so the 1995 window does not
+                // start with an artificial FX crash from today's rate.
+                const engine = new MonteCarloEngine({
+                    ...getDefaultParams(),
+                    initialFX: 0.85,
+                    years: 10,
+                });
+                const complete = engine.runAllHistoricalWindows().filter(w => w.isComplete);
+                const realFinal = (w) => w.portfolioBRL[w.portfolioBRL.length - 1] /
+                    w.cumulativeIpcaFactor[w.cumulativeIpcaFactor.length - 1];
+                const worst = complete.reduce((a, b) => (realFinal(b) < realFinal(a) ? b : a));
+                assertInRange(worst.startYear, 1997, 2002,
+                    `worst window should start in 1997-2002, got ${worst.startYear}`);
+            });
+        });
+
+        // ============================================
+        // ENDOWMENT
+        // ============================================
+
+        function getEndowmentParams(overrides) {
+            return {
+                ...getDefaultParams(),
+                seed: 1234,
+                endowmentTargetRate: 4.0,
+                endowmentAlpha: 0.7,
+                useEndowmentCAPE: true,
+                initialCAPE: 41,
+                medianCAPE: 25,
+                capeVolatility: 3,
+                capeMeanReversionSpeed: 0.15,
+                endowmentDrawdownSensitivity: 0.5,
+                endowmentGuardrailCap: 0.15,
+                ...overrides,
+            };
+        }
+
+        tf.describe('Endowment: Monte Carlo Comparison', () => {
+            tf.it('is reproducible with a fixed seed and returns finite metrics for all strategies', () => {
+                const run = () => new MonteCarloEngine(getEndowmentParams()).runMonteCarloComparison(40);
+                const a = run();
+                const b = run();
+
+                for (const s of ['endowment', 'fixed', 'gk']) {
+                    assertEqual(a[s].totalSimulations, 40, `${s} should run 40 simulations`);
+                    assertInRange(a[s].survivalRate, 0, 100, `${s} survivalRate out of range`);
+                    assert(Number.isFinite(a[s].medianFinalPortfolio), `${s} medianFinalPortfolio not finite`);
+                    assert(a[s].portfolioPercentiles.p50.every(Number.isFinite), `${s} portfolio p50 not finite`);
+                    assertEqual(a[s].survivalRate, b[s].survivalRate, `${s} survivalRate differs between runs`);
+                    assertEqual(a[s].medianFinalPortfolio, b[s].medianFinalPortfolio, `${s} medianFinalPortfolio differs between runs`);
+
+                    const m = a.comparisonMetrics;
+                    for (const key of ['survivalRates', 'terminalPortfolio', 'terminalPortfolioP10', 'withdrawalVolatility', 'worstWithdrawal']) {
+                        assert(Number.isFinite(m[key][s]), `comparisonMetrics.${key}.${s} not finite: ${m[key][s]}`);
+                    }
+                    for (const yr of Object.keys(m.withdrawalAtYear)) {
+                        assert(Number.isFinite(m.withdrawalAtYear[yr][s]), `withdrawalAtYear.${yr}.${s} not finite`);
+                    }
+                }
+                assertEqual(JSON.stringify(a.comparisonMetrics), JSON.stringify(b.comparisonMetrics),
+                    'comparisonMetrics differ between runs with the same seed');
+                assertEqual(JSON.stringify(a.capePercentiles), JSON.stringify(b.capePercentiles),
+                    'capePercentiles differ between runs with the same seed');
+            });
+        });
+
+        tf.describe('Endowment: CAPE Process', () => {
+            tf.it('stays within [7, 50] and reverts toward the median over a long path', () => {
+                const engine = new MonteCarloEngine(getEndowmentParams());
+                let cape = 41;
+                let sum = 0;
+                const steps = 1000;
+                for (let i = 0; i < steps; i++) {
+                    cape = engine.generateCAPE(cape);
+                    assert(Number.isFinite(cape), `CAPE not finite at step ${i}`);
+                    assertInRange(cape, 7, 50, `CAPE out of bounds at step ${i}: ${cape}`);
+                    sum += cape;
+                }
+                assertInRange(sum / steps, 22, 28, `long-run mean CAPE ${(sum / steps).toFixed(2)} should be near the median 25`);
+            });
+
+            tf.it('stays within [7, 50] under extreme volatility', () => {
+                const engine = new MonteCarloEngine(getEndowmentParams({ capeVolatility: 20 }));
+                let cape = 41;
+                for (let i = 0; i < 1000; i++) {
+                    cape = engine.generateCAPE(cape);
+                    assertInRange(cape, 7, 50, `CAPE out of bounds at step ${i}: ${cape}`);
+                }
             });
         });
 

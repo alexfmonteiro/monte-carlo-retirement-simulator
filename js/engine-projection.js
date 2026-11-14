@@ -84,6 +84,26 @@ MonteCarloEngine.prototype._bisectSWR = async function (
 };
 
 /**
+ * Sweep range and survival criteria from the sidebar params, clamped to
+ * survival 50-99.9% and 1-20 extra years. Missing params fall back to the
+ * same defaults runRetirementAgeSweep uses.
+ *
+ * @param {object} params - app params (projectionRawSurvival,
+ *   projectionAdjustedSurvival, projectionMaxExtraYears)
+ * @returns {{maxExtraYears:number, criteria:{rawSurvival:number, adjustedSurvival:number}}}
+ */
+MonteCarloEngine.projectionSweepOptions = function (params) {
+    const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+    return {
+        maxExtraYears: clamp(Math.round(params.projectionMaxExtraYears ?? 10), 1, 20),
+        criteria: {
+            rawSurvival: clamp(params.projectionRawSurvival ?? 83, 50, 99.9),
+            adjustedSurvival: clamp(params.projectionAdjustedSurvival ?? 96.5, 50, 99.9),
+        },
+    };
+};
+
+/**
  * Sweep candidate retirement ages (0..maxExtraYears extra years worked)
  * and, for each, compute the sustainable SWR (conservative/adjusted) and
  * whether the user's actual target spending survives.
