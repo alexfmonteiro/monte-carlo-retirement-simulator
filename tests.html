@@ -2285,6 +2285,51 @@
             });
         });
 
+        tf.describe('Retirement-Age Sweep: Seed', () => {
+            const sweepParams = () => ({
+                ...getDefaultParams(),
+                currentAge: 60,
+                targetSpendingBRL: 120000,
+                monthlyContributionBRL: 6000,
+                contributionSplitUSD: 80,
+                initialPortfolioUSD: 400000,
+                initialPortfolioBRL: 300000,
+                years: 30,
+            });
+            const sweepOpts = { maxExtraYears: 1, probeIterations: 60, confirmIterations: 80 };
+
+            tf.it('the same seed reproduces the sweep exactly', async () => {
+                const a = await new MonteCarloEngine({ ...sweepParams(), seed: 4242 }).runRetirementAgeSweep(sweepOpts);
+                const b = await new MonteCarloEngine({ ...sweepParams(), seed: 4242 }).runRetirementAgeSweep(sweepOpts);
+                assertEqual(JSON.stringify(a.byAge), JSON.stringify(b.byAge), 'sweep results differ for the same seed');
+            });
+
+            tf.it('every bisection probe runs with the user seed', async () => {
+                const engine = new MonteCarloEngine({ ...sweepParams(), seed: 4242 });
+                const seeds = [];
+                const original = engine._bisectSWR;
+                engine._bisectSWR = function (baseParams, targetRate, getSurvival, opts) {
+                    seeds.push(opts.seed);
+                    return original.call(this, baseParams, targetRate, getSurvival, opts);
+                };
+                await engine.runRetirementAgeSweep(sweepOpts);
+                assertEqual(seeds.length, 4, `expected 4 bisections, got ${seeds.length}`);
+                seeds.forEach((s, i) => assertEqual(s, 4242, `bisection ${i} got seed ${s}`));
+            });
+
+            tf.it('empty seed: all bisections share the engine seed', async () => {
+                const engine = new MonteCarloEngine({ ...sweepParams(), seed: null });
+                const seeds = [];
+                const original = engine._bisectSWR;
+                engine._bisectSWR = function (baseParams, targetRate, getSurvival, opts) {
+                    seeds.push(opts.seed);
+                    return original.call(this, baseParams, targetRate, getSurvival, opts);
+                };
+                await engine.runRetirementAgeSweep(sweepOpts);
+                seeds.forEach((s, i) => assertEqual(s, engine.getSeed(), `bisection ${i} got seed ${s}`));
+            });
+        });
+
         // ============================================
         // RUN TESTS
         // ============================================
