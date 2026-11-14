@@ -911,6 +911,70 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                                         </div>
                                     </div>
                                 )}
+                                {params.objectiveMode === "preservation" && (
+                                    <>
+                                        {/* Spending Mode */}
+                                        <div className="mb-3">
+                                            <label className="flex items-center text-xs text-gray-400 mb-2 font-medium uppercase tracking-wide">
+                                                Modo de Definição do Gasto na
+                                                Aposentadoria
+                                                <Tooltip text="Como o primeiro saque anual (ao se aposentar) é calculado. 'Taxa de Retirada' usa o SWR (%) definido acima sobre o patrimônio na data de aposentadoria (hoje, ou ao fim da Fase de Acumulação). 'Gasto Alvo' usa um valor fixo em BRL de hoje (corrigido pelo IPCA acumulado até a aposentadoria, se houver Fase de Acumulação), independente do tamanho do portfólio — útil para responder 'preciso de quanto para bancar R$ X/ano?'." />
+                                            </label>
+                                            <div className="flex gap-2 p-1 bg-midnight rounded-lg">
+                                                <button
+                                                    onClick={() =>
+                                                        updateParam(
+                                                            "spendingMode",
+                                                            "rate",
+                                                        )
+                                                    }
+                                                    className={`flex-1 py-1.5 px-3 rounded-md text-xs font-medium transition-all ${
+                                                        params.spendingMode ===
+                                                        "rate"
+                                                            ? "bg-accent text-white"
+                                                            : "text-gray-400 hover:text-white hover:bg-surface"
+                                                    }`}
+                                                >
+                                                    Taxa de Retirada
+                                                </button>
+                                                <button
+                                                    onClick={() =>
+                                                        updateParam(
+                                                            "spendingMode",
+                                                            "target",
+                                                        )
+                                                    }
+                                                    className={`flex-1 py-1.5 px-3 rounded-md text-xs font-medium transition-all ${
+                                                        params.spendingMode ===
+                                                        "target"
+                                                            ? "bg-accent text-white"
+                                                            : "text-gray-400 hover:text-white hover:bg-surface"
+                                                    }`}
+                                                >
+                                                    Gasto Alvo
+                                                </button>
+                                            </div>
+                                        </div>
+                                        {params.spendingMode === "target" && (
+                                            <BRLInputWithUSD
+                                                label="Gasto Alvo Anual"
+                                                valueBRL={
+                                                    params.targetSpendingBRL
+                                                }
+                                                onChange={(v) =>
+                                                    updateParam(
+                                                        "targetSpendingBRL",
+                                                        v,
+                                                    )
+                                                }
+                                                fx={params.initialFX}
+                                                min={0}
+                                                step={10000}
+                                                tooltip="Gasto anual desejado na aposentadoria, em BRL de hoje. Este valor é corrigido pelo IPCA acumulado simulado até a data de aposentadoria para virar o primeiro saque real do plano. A taxa de retirada implícita (gasto ÷ patrimônio na aposentadoria) é calculada automaticamente e usada como base para as regras de Guyton-Klinger."
+                                            />
+                                        )}
+                                    </>
+                                )}
                             </div>
 
                             {/* Accumulation Phase Section */}
@@ -997,66 +1061,6 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                                             tooltip="Crescimento real (acima do IPCA) da capacidade de poupança ano a ano — por exemplo, promoções ou aumentos de renda ao longo da carreira. Zero significa que o aporte mensal acompanha apenas a inflação, sem crescer em termos reais."
                                         />
 
-                                        {/* Spending Mode */}
-                                        <div className="mt-4 mb-2">
-                                            <label className="flex items-center text-xs text-gray-400 mb-2 font-medium uppercase tracking-wide">
-                                                Modo de Definição do Gasto na
-                                                Aposentadoria
-                                                <Tooltip text="Como o primeiro saque anual (ao se aposentar) é calculado. 'Taxa de Retirada' usa o SWR (%) definido acima sobre o patrimônio acumulado até a data de aposentadoria. 'Gasto Alvo' usa um valor fixo em BRL de hoje (corrigido pelo IPCA acumulado até a aposentadoria), independente do tamanho do portfólio — útil para responder 'preciso de quanto para bancar R$ X/ano?'." />
-                                            </label>
-                                            <div className="flex gap-2 p-1 bg-midnight rounded-lg">
-                                                <button
-                                                    onClick={() =>
-                                                        updateParam(
-                                                            "spendingMode",
-                                                            "rate",
-                                                        )
-                                                    }
-                                                    className={`flex-1 py-1.5 px-3 rounded-md text-xs font-medium transition-all ${
-                                                        params.spendingMode ===
-                                                        "rate"
-                                                            ? "bg-accent text-white"
-                                                            : "text-gray-400 hover:text-white hover:bg-surface"
-                                                    }`}
-                                                >
-                                                    Taxa de Retirada
-                                                </button>
-                                                <button
-                                                    onClick={() =>
-                                                        updateParam(
-                                                            "spendingMode",
-                                                            "target",
-                                                        )
-                                                    }
-                                                    className={`flex-1 py-1.5 px-3 rounded-md text-xs font-medium transition-all ${
-                                                        params.spendingMode ===
-                                                        "target"
-                                                            ? "bg-accent text-white"
-                                                            : "text-gray-400 hover:text-white hover:bg-surface"
-                                                    }`}
-                                                >
-                                                    Gasto Alvo
-                                                </button>
-                                            </div>
-                                        </div>
-                                        {params.spendingMode === "target" && (
-                                            <BRLInputWithUSD
-                                                label="Gasto Alvo Anual"
-                                                valueBRL={
-                                                    params.targetSpendingBRL
-                                                }
-                                                onChange={(v) =>
-                                                    updateParam(
-                                                        "targetSpendingBRL",
-                                                        v,
-                                                    )
-                                                }
-                                                fx={params.initialFX}
-                                                min={0}
-                                                step={10000}
-                                                tooltip="Gasto anual desejado na aposentadoria, em BRL de hoje. Este valor é corrigido pelo IPCA acumulado simulado até a data de aposentadoria para virar o primeiro saque real do plano. A taxa de retirada implícita (gasto ÷ patrimônio na aposentadoria) é calculada automaticamente e usada como base para as regras de Guyton-Klinger."
-                                            />
-                                        )}
                                     </>
                                 )}
                                 {params.sidebarMode === "advanced" && (
@@ -4118,7 +4122,7 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                                                                 <p className="text-xs text-gray-500">
                                                                     Sobrevivência gastando{" "}
                                                                     {formatCurrency(params.targetSpendingBRL)}/ano
-                                                                    (gasto alvo definido na Fase de Acumulação), sem
+                                                                    (Gasto Alvo Anual definido no Portfólio Inicial), sem
                                                                     trabalhar nenhum ano a mais
                                                                 </p>
                                                             </div>
@@ -4223,7 +4227,7 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                                                         bruta; SWR ajustado exige{" "}
                                                         {projectionResults.criteria.adjustedSurvival}% de
                                                         sobrevivência ajustada por mortalidade. "Sobrev. no gasto
-                                                        alvo" usa o gasto alvo definido na Fase de Acumulação,
+                                                        alvo" usa o Gasto Alvo Anual definido no Portfólio Inicial,
                                                         ajustado por mortalidade, mantendo o número de anos extra
                                                         trabalhados daquela linha.
                                                     </p>
