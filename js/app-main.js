@@ -86,6 +86,10 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                     // Spending-target mode (alternative to rate mode)
                     spendingMode: "rate", // 'rate' (SWR % as today) | 'target' (fixed real spending)
                     targetSpendingBRL: 180000, // today's BRL per year; indexed by simulated IPCA to retirement date
+                    // Projeção sweep (retirement-age) criteria and range
+                    projectionRawSurvival: 83, // % raw survival for the conservative SWR
+                    projectionAdjustedSurvival: 96.5, // % mortality-adjusted survival for the adjusted SWR
+                    projectionMaxExtraYears: 10, // sweep 0..N extra years worked
                     // Optional local overrides (js/local-profile.js, gitignored):
                     // lets a user keep personal figures out of the public repo
                     ...(typeof LOCAL_PROFILE !== "undefined" ? LOCAL_PROFILE : {}),
@@ -159,10 +163,15 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                 // RETIREMENT-AGE PROJECTION SWEEP ("Projeção" tab)
                 // ============================================
                 const runProjectionSweep = async () => {
+                    const sweepOptions =
+                        MonteCarloEngine.projectionSweepOptions(params);
                     setIsRunningProjection(true);
                     setProjectionResults(null);
                     setShtfResult(null);
-                    setProjectionProgress({ n: 0, maxExtraYears: 10 });
+                    setProjectionProgress({
+                        n: 0,
+                        maxExtraYears: sweepOptions.maxExtraYears,
+                    });
                     setActiveResultsTab("projection");
 
                     // Let the UI paint the loading state before the first
@@ -194,7 +203,7 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
 
                     const engine = new MonteCarloEngine(params);
                     const sweep = await engine.runRetirementAgeSweep({
-                        maxExtraYears: 10,
+                        ...sweepOptions,
                         onProgress: (p) => setProjectionProgress(p),
                     });
 
@@ -1046,6 +1055,62 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                                             />
                                         )}
                                     </>
+                                )}
+                                {params.sidebarMode === "advanced" && (
+                                    <div className="mt-4 pt-3 border-t border-purple-500/20">
+                                        <div className="text-xs text-gray-400 mb-2 font-medium uppercase tracking-wide">
+                                            Critérios da Aba Projeção
+                                        </div>
+                                        <Input
+                                            label="Sobrevivência Bruta (SWR Conservador)"
+                                            value={params.projectionRawSurvival}
+                                            onChange={(v) =>
+                                                updateParam(
+                                                    "projectionRawSurvival",
+                                                    v,
+                                                )
+                                            }
+                                            unit="%"
+                                            min={50}
+                                            max={99.9}
+                                            step={0.5}
+                                            tooltip="Percentual mínimo de simulações em que o dinheiro dura até os 100 anos, contando todas as falhas igualmente (sobrevivência bruta). A aba Projeção busca, para cada idade de aposentadoria, a maior taxa de retirada que atinge este percentual — o 'SWR conservador'. Quanto maior o valor, mais seguro e menor o gasto sustentável. Aceita de 50% a 99,9%."
+                                        />
+                                        <Input
+                                            label="Sobrevivência Ajustada (SWR Ajustado)"
+                                            value={
+                                                params.projectionAdjustedSurvival
+                                            }
+                                            onChange={(v) =>
+                                                updateParam(
+                                                    "projectionAdjustedSurvival",
+                                                    v,
+                                                )
+                                            }
+                                            unit="%"
+                                            min={50}
+                                            max={99.9}
+                                            step={0.5}
+                                            tooltip="Mesmo critério, mas usando a sobrevivência ajustada por mortalidade (tábua IBGE): uma falha aos 95 anos pesa menos que uma falha aos 65, porque há boa chance de você não estar vivo para vê-la. Por isso a sobrevivência ajustada é sempre maior que a bruta, e o alvo costuma ser mais alto (ex: 96,5% ajustada vs. 83% bruta). Aceita de 50% a 99,9%."
+                                        />
+                                        <Input
+                                            label="Anos Extra Avaliados"
+                                            value={
+                                                params.projectionMaxExtraYears
+                                            }
+                                            onChange={(v) =>
+                                                updateParam(
+                                                    "projectionMaxExtraYears",
+                                                    v,
+                                                )
+                                            }
+                                            unit="anos"
+                                            min={1}
+                                            max={20}
+                                            step={1}
+                                            tooltip="Até quantos anos extra de trabalho a aba Projeção avalia (de 0 até este valor, uma linha por idade). Cada ano extra roda uma nova bateria de simulações, então valores maiores demoram mais. Aceita de 1 a 20 anos."
+                                        />
+                                    </div>
                                 )}
                             </div>
 
