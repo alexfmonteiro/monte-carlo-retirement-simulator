@@ -2247,6 +2247,41 @@
             });
         });
 
+        tf.describe('Retirement-Age Sweep: Sidebar Options', () => {
+            tf.it('defaults reproduce the hardcoded sweep criteria and range', () => {
+                const opts = MonteCarloEngine.projectionSweepOptions(getDefaultParams());
+                assertEqual(opts.maxExtraYears, 10, 'default maxExtraYears');
+                assertEqual(opts.criteria.rawSurvival, 83, 'default rawSurvival');
+                assertEqual(opts.criteria.adjustedSurvival, 96.5, 'default adjustedSurvival');
+            });
+
+            tf.it('passes user values through and clamps out-of-range ones', () => {
+                const ok = MonteCarloEngine.projectionSweepOptions({
+                    projectionRawSurvival: 90,
+                    projectionAdjustedSurvival: 99,
+                    projectionMaxExtraYears: 5,
+                });
+                assertEqual(ok.criteria.rawSurvival, 90, 'rawSurvival passthrough');
+                assertEqual(ok.criteria.adjustedSurvival, 99, 'adjustedSurvival passthrough');
+                assertEqual(ok.maxExtraYears, 5, 'maxExtraYears passthrough');
+
+                const out = MonteCarloEngine.projectionSweepOptions({
+                    projectionRawSurvival: 10,
+                    projectionAdjustedSurvival: 120,
+                    projectionMaxExtraYears: 7.6,
+                });
+                assertEqual(out.criteria.rawSurvival, 50, 'rawSurvival clamped to 50');
+                assertEqual(out.criteria.adjustedSurvival, 99.9, 'adjustedSurvival clamped to 99.9');
+                assertEqual(out.maxExtraYears, 8, 'maxExtraYears rounded');
+
+                const big = MonteCarloEngine.projectionSweepOptions({ projectionMaxExtraYears: 0 });
+                assertEqual(big.maxExtraYears, 1, 'maxExtraYears clamped to 1');
+                assertEqual(
+                    MonteCarloEngine.projectionSweepOptions({ projectionMaxExtraYears: 50 }).maxExtraYears,
+                    20, 'maxExtraYears clamped to 20');
+            });
+        });
+
         tf.describe('Retirement-Age Sweep: Monotonicity', () => {
             tf.it('sustainable SWR is non-decreasing (within tolerance) as extra years worked increases', async () => {
                 const params = {
