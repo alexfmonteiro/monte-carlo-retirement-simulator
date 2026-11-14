@@ -3850,6 +3850,12 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                                     {/* ====== HISTORICAL BACKTESTING RESULTS ====== */}
                                     {activeResultsTab === "historical" && historicalResults && (
                                         <div className="space-y-6">
+                                            {params.useAccumulation && params.accumulationYears > 0 && (
+                                                <div className="p-3 bg-purple-500/5 border border-purple-500/30 rounded-lg text-xs text-gray-400">
+                                                    O backtest histórico não simula a fase de acumulação: cada janela começa já na aposentadoria, com o patrimônio atual e a Taxa de Retirada definida.
+                                                </div>
+                                            )}
+
                                             {/* Overview */}
                                             <HistoricalOverview
                                                 data={historicalResults}
