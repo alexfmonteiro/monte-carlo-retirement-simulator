@@ -58,6 +58,7 @@ js/
 ├── mortality-data.js       — IBGE 2023 mortality table (qx ages 0-110, male/female)
 ├── historical-data.js      — Historical annual data 1995-2024 (S&P 500, CDI, IPCA, BRL/USD)
 ├── engine-core.js          — MonteCarloEngine class (core simulation logic)
+├── engine-projection.js    — Retirement-age sweep (prototype extensions, "Projeção" tab)
 ├── engine-historical.js    — Historical backtesting methods (prototype extensions)
 ├── engine-endowment.js     — Endowment-specific methods (prototype extensions)
 ├── ui-primitives.js        — Reusable UI components (Icon, Tooltip, Input, etc.)
@@ -67,15 +68,24 @@ js/
 ├── ui-stress.js            — Stress analysis components
 ├── ui-historical.js        — Historical backtesting UI components
 ├── ui-endowment.js         — Endowment app components
+├── ui-projection.js        — "Projeção" tab components (retirement-age sweep UI)
+├── local-profile.example.js — Template for personal default overrides (LOCAL_PROFILE)
+├── local-profile.js        — Gitignored copy of the template; optional, loaded by index.html only
 ├── app-main.js             — Main App React component
 └── app-endowment.js        — Endowment App React component
+scripts/
+├── run-tests.js            — Runs the full tests.html suite in Node (exits 1 on any failure)
+└── smoke.js                — Browser-free finiteness/shape smoke checks
 ```
 
 ## Script Loading Rules
 
 - `rng.js`, `mortality-data.js`, `historical-data.js`, and `engine-*.js`: Plain `<script src>` (no JSX)
 - `ui-*.js` and `app-*.js`: `<script type="text/babel" src="...">` (Babel Standalone)
-- Data files (`mortality-data.js`, `historical-data.js`) must load before `engine-core.js`
+- Data files (`mortality-data.js`, `historical-data.js`) are only read when engine methods run, so they can load before or after `engine-core.js`, as long as they load before the `ui-*.js`/`app-*.js` scripts
+- `engine-projection.js`, `engine-historical.js` and `engine-endowment.js` extend `MonteCarloEngine.prototype` and must load after `engine-core.js`
+- `local-profile.js` (optional, gitignored) must load before `app-main.js`, which spreads `LOCAL_PROFILE` over its default params
+- `ui-projection.js` must load before `app-main.js`
 - **No ES6 modules** - all names are globals attached to window
 
 ## Code Style Guidelines
@@ -151,7 +161,7 @@ function App() {
 ### HTML Files
 
 - Keep minimal - mostly CDN imports and script tags
-- Custom CSS in `<style>` block (lines 38-83 of index.html)
+- Custom CSS in the `<style>` block in each HTML file's `<head>`
 - Tailwind CDN for utility classes
 
 ### Imports and Globals
@@ -176,11 +186,11 @@ root.render(<App />);
 
 - **Box-Muller transform**: Normal distribution (`randomNormal`)
 - **T-Student**: Fat-tail returns for worst-case scenarios (`randomStudentT`)
-- **Cholesky decomposition**: Correlated asset returns (`generateCorrelatedReturns`)
+- **Two-variable Cholesky step**: Correlated draws are built inline (e.g. the FX shock in `simulateCurrency`); there is no general Cholesky helper
 
 ### Financial Models
 
-- **Dynamic FX Correlation**: Base -0.4 correlation with 2x stress multiplier during market downturns
+- **Dynamic FX Correlation**: `baseCorrelation` made more negative by `stressCorrelationMultiplier` during market downturns (`getDynamicCorrelation`); defaults live in `js/app-main.js`
 - **Guyton-Klinger Rules**: Preservation (cut if rate rises 20%), Prosperity (increase if rate drops 20%), Inflation skip rule
 - **Bucket Strategy**: First N years withdraw from fixed income only
 - **IPCA Model**: Brazilian inflation modeling with equity correlation
@@ -200,12 +210,17 @@ All simulation parameters are in a single object passed to `MonteCarloEngine`:
 - Spending Smile: `useSpendingSmile`, `smileEarlyMultiplier`, `smileMidMultiplier`, `smileLateMultiplier`
 - Regime-Switching: `useRegimeSwitching`, `bullEquityMean`, `bullEquityVol`, `bearEquityMean`, `bearEquityVol`, `bullToBullProb`, `bearToBearProb`
 - Mortality: `useMortalityAdjustment`, `mortalityGender`
+- Accumulation: `useAccumulation`, `accumulationYears`, `monthlyContributionBRL`, `contributionSplitUSD`, `contributionGrowthReal`
+- Spending mode: `spendingMode` (`'rate'` or `'target'`), `targetSpendingBRL`
+- USD side: `usdInflation`, `usdBondReturn`, `usdBondVolatility`
+
+Default values live in the `useState` at the top of `js/app-main.js`; read them there instead of copying numbers into docs.
 
 ## Modification Guide
 
 ### Adding New Simulation Features
 
-1. Edit `MonteCarloEngine` class in `js/engine-core.js`
+1. Edit `MonteCarloEngine` class in `js/engine-core.js` (or the matching `js/engine-*.js` prototype extension)
 2. Add method or extend `runSimulation()` for new logic
 3. Extend `analyzeResults()` for new metrics
 4. Test in browser console with seeded engine
