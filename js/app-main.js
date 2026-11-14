@@ -3309,9 +3309,7 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                                             results={results}
                                             formatCurrency={formatCurrency}
                                             initialWithdrawalBRL={
-                                                params.initialPortfolioUSD *
-                                                (params.withdrawalRate / 100) *
-                                                params.initialFX
+                                                results.medianInitialWithdrawalBRL
                                             }
                                             accumulationYears={
                                                 chartAccumulationYears
