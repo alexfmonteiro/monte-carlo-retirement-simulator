@@ -47,6 +47,7 @@ All UI text and tooltips are in Portuguese (pt-BR).
 - **Deployment**: Push to GitHub and enable Pages (main branch, root directory)
 - **Testing**: Serve locally then open `http://localhost:8000/tests.html` and click "Run All Tests"
 - **Headless testing**: `node scripts/run-tests.js` runs the full `tests.html` suite in Node (exits 1 on any failure); `node scripts/smoke.js` runs browser-free sanity checks
+- **SWR study**: `node scripts/estudo-swr.js` regenerates `estudo-swr.json` (seeded, ~4 min), the only data source of `estudo.html`; `--check` exits 1 if the committed file differs from a fresh run. Rerun it after any engine change that moves results
 - **Manual testing**: Use browser console to inspect `engine.runSimulation()` (single path) or `engine.runMonteCarlo(100)` (quick 100-iteration test)
 
 ## Architecture
@@ -57,6 +58,7 @@ The application is split across HTML shells and a `js/` folder:
 index.html          — HTML head (CDN imports + CSS) + script tags only
 endowment.html      — HTML head + script tags for endowment simulator
 tests.html          — Test runner (loads engine from js/)
+estudo.html         — Static SWR study page (pt-BR), renders estudo-swr.json
 js/
 ├── rng.js                  — SeededRNG class (Mulberry32 PRNG)
 ├── mortality-data.js       — IBGE 2023 mortality table (qx ages 0-110, male/female)
