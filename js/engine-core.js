@@ -1642,4 +1642,25 @@ class MonteCarloEngine {
         }
         return portfolioBRL * (swr / 100);
     }
+
+    // Overrides from a URL query string (e.g. the links on estudo.html).
+    // Only keys already in `defaults` are read; each value is coerced to
+    // the default's type (a null default is numeric, like `seed`).
+    // Unknown keys and unparseable numbers are ignored.
+    static paramsFromQuery(defaults, search) {
+        const overrides = {};
+        for (const [key, raw] of new URLSearchParams(search)) {
+            if (!Object.prototype.hasOwnProperty.call(defaults, key)) continue;
+            const current = defaults[key];
+            if (typeof current === "boolean") {
+                if (raw === "true" || raw === "false") overrides[key] = raw === "true";
+            } else if (typeof current === "number" || current === null) {
+                const value = Number(raw);
+                if (raw !== "" && Number.isFinite(value)) overrides[key] = value;
+            } else if (typeof current === "string") {
+                overrides[key] = raw;
+            }
+        }
+        return overrides;
+    }
 }

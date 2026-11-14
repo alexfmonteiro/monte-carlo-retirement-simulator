@@ -1,9 +1,15 @@
 const { useState, useEffect, useRef, useCallback, useMemo } = React;
 
+            // Defaults overridden by URL query params (links on estudo.html)
+            const withQueryOverrides = (defaults) => ({
+                ...defaults,
+                ...MonteCarloEngine.paramsFromQuery(defaults, window.location.search),
+            });
+
             // Main App
             const App = () => {
                 // Parameters state
-                const [params, setParams] = useState({
+                const [params, setParams] = useState(() => withQueryOverrides({
                     initialPortfolioUSD: 800000,
                     initialPortfolioBRL: 1030000, // Portfolio in BRL (Brazilian fixed income) — ~US$200k @ 5.15
                     initialFX: 5.15, // USD/BRL spot jul/2026; Focus 2026-28: 5.15-5.30
@@ -89,7 +95,7 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                     // Optional local overrides (js/local-profile.js, gitignored):
                     // lets a user keep personal figures out of the public repo
                     ...(typeof LOCAL_PROFILE !== "undefined" ? LOCAL_PROFILE : {}),
-                });
+                }));
 
                 const [results, setResults] = useState(null);
                 const [isRunning, setIsRunning] = useState(false);

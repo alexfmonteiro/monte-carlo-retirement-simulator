@@ -39,6 +39,7 @@ engine.runMonteCarlo(100)  # 100-iteration Monte Carlo
 ```bash
 node scripts/run-tests.js  # Full tests.html suite; prints failures, exits 1 on any failure
 node scripts/smoke.js      # Finiteness/shape smoke checks
+node scripts/estudo-swr.js # Regenerate estudo-swr.json for estudo.html (~4 min); --check compares with the committed file
 ```
 
 **No npm test command exists** - use the Node scripts above or the browser runner.
