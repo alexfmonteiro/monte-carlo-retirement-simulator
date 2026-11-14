@@ -49,6 +49,7 @@ As abas Backtesting e Projeção aparecem no topo dos resultados após a primeir
 - [Teoria Financeira](#teoria-financeira)
 - [Parâmetros de Entrada](#parâmetros-de-entrada)
 - [Calibração dos Defaults](#calibração-dos-defaults)
+- [O que o modelo tributa e o que não tributa](#o-que-o-modelo-tributa-e-o-que-não-tributa)
 - [Interpretação dos Resultados](#interpretação-dos-resultados)
 - [Instalação e Uso](#instalação-e-uso)
 - [Metodologia Técnica](#metodologia-técnica)
@@ -382,6 +383,7 @@ A varredura (`runRetirementAgeSweep`) repete a simulação de duas fases para ca
 | **Anos Trabalhando/Poupando** | Anos de aportes antes da aposentadoria | 0 |
 | **Aporte Mensal** | Valor de hoje em BRL, corrigido pelo IPCA simulado | R$ 10.000 |
 | **% do Aporte em USD** | Fração comprando ativos dolarizados; o resto vai para a sleeve BRL | 80% |
+| **IOF na Remessa do Aporte** | Avançado. % descontado da parte em USD de cada aporte antes da conversão | 0% |
 | **Crescimento Real dos Aportes** | % a.a. real (promoções, carreira) | 0% |
 | **Modo de Gasto** | "Taxa" ou "Gasto Alvo" | Taxa |
 | **Gasto Alvo Anual** | Gasto real de hoje em BRL — usado no modo "alvo" e na aba Projeção | R$ 180.000 |
@@ -491,6 +493,27 @@ Os defaults foram calibrados em julho de 2026 contra dados de mercado e projeç�
 **df=8**: retornos anuais são mais próximos da Normal que os diários (df 3-5). Se quiser pessimismo de cauda, use 5.
 
 **Guyton-Klinger 20/20/10 e tributação 15%**: paper original e Lei 14.754/2023, respectivamente.
+
+---
+
+## O que o modelo tributa e o que não tributa
+
+Revisão de novembro de 2026. Esta seção descreve o modelo. Não é orientação tributária.
+
+**Modelado**
+
+- **15% sobre o ganho da carteira no exterior.** Os rendimentos de aplicações financeiras no exterior pagam 15% no ajuste anual (Lei 14.754/2023, art. 2º, § 1º). O parâmetro **IR ETFs Irlandeses** (default 15%) aplica essa alíquota.
+- **Todo saque paga imposto.** Desde 1º/1/2024, a isenção de alienações de pequeno valor (Lei 9.250/1995, art. 22) não vale para ganhos de aplicações no exterior, inclusive ações negociadas em bolsa estrangeira (Solução de Consulta Cosit nº 130/2026). O modelo tributa todo saque, sem faixa de isenção mensal.
+- **O ganho é medido em reais.** A lei tributa o ganho "inclusive de variação cambial sobre o principal" (Lei 14.754/2023, art. 3º, § 2º) e converte os valores pela cotação de venda do Banco Central na data do fato gerador (art. 15). O modelo não guarda custo de aquisição. Ele estima a parcela de ganho como uma fração do saque em reais (6% por ano de aposentadoria, até 60%, veja [Impostos](#impostos)). Por isso o imposto não reage à trajetória do câmbio.
+- **IOF no aporte (opcional).** O Decreto 12.499/2025 alterou o art. 15-B do Decreto 6.306/2007: 1,1% na remessa de residente com finalidade de investimento no exterior (inciso XXI-A) e 3,5% nas demais transferências ao exterior não isentas (inciso XXIV). O parâmetro avançado **IOF na Remessa do Aporte** (default 0%) desconta a alíquota escolhida da parte em USD de cada aporte na fase de acumulação. Os saques não pagam IOF no modelo.
+
+**Não modelado**
+
+- **Tributação mínima de altas rendas.** A partir do ano-calendário 2026, quem recebe mais de R$ 600 mil no ano paga uma alíquota mínima que sobe até 10% a partir de R$ 1,2 milhão (Lei 9.250/1995, art. 16-A, incluído pela Lei 15.270/2025). O IR apurado pela Lei 14.754/2023 e o IR retido exclusivamente na fonte são deduzidos (art. 16-A, § 3º, II e III). Na renda das duas sleeves do modelo, o IR já pago (15%) é maior que a alíquota máxima (10%).
+- **Retenção sobre dividendos brasileiros.** Lucros e dividendos acima de R$ 50 mil no mês, pagos por uma mesma empresa a uma mesma pessoa física, têm 10% retidos na fonte (Lei 9.250/1995, art. 6º-A, incluído pela Lei 15.270/2025). A carteira do modelo não tem ações brasileiras.
+- **ITCMD.** A LC 227/2026 institui normas gerais do ITCMD. O patrimônio final e o Patrimônio Final Alvo são brutos, sem esse imposto.
+
+Fontes: [Lei 14.754/2023](https://www.planalto.gov.br/ccivil_03/_ato2023-2026/2023/lei/l14754.htm), [Lei 15.270/2025](https://www.planalto.gov.br/ccivil_03/_ato2023-2026/2025/lei/l15270.htm), [Decreto 12.499/2025](https://www.planalto.gov.br/ccivil_03/_ato2023-2026/2025/decreto/d12499.htm), [LC 227/2026](https://www.planalto.gov.br/ccivil_03/leis/lcp/lcp227.htm), Solução de Consulta Cosit nº 130/2026 (DOU de 5/8/2026, [normas da Receita Federal](https://normas.receita.fazenda.gov.br/sijut2consulta/consulta.action)).
 
 ---
 
@@ -632,6 +655,10 @@ Mesmo laço estocástico da aposentadoria, sem saques: aportes IPCA-indexados di
 10. **Ang, A., & Bekaert, G. (2002)**. "Regime Switches in Interest Rates." *Journal of Business & Economic Statistics*.
 11. **Brasil, Lei 14.754/2023**. Tributação de investimentos no exterior — alíquota de 15% sobre rendimentos offshore.
 12. **IBGE (2023)**. "Tábuas Completas de Mortalidade — Brasil."
+13. **Brasil, Lei 15.270/2025**. Tributação mínima de altas rendas e retenção sobre dividendos.
+14. **Brasil, Decreto 12.499/2025**. Alíquotas de IOF-câmbio (altera o Decreto 6.306/2007).
+15. **Brasil, Lei Complementar 227/2026**. Normas gerais do ITCMD.
+16. **Receita Federal, Solução de Consulta Cosit nº 130/2026**. Isenção de pequeno valor não se aplica a aplicações no exterior desde 2024.
 
 ---
 

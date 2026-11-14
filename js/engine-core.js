@@ -384,6 +384,7 @@ class MonteCarloEngine {
                 : 0;
         const monthlyContributionBRL = this.params.monthlyContributionBRL || 0;
         const contributionSplitUSD = this.params.contributionSplitUSD ?? 80;
+        const iofContribution = this.params.iofContribution || 0;
         const contributionGrowthReal = this.params.contributionGrowthReal || 0;
         const spendingMode = this.params.spendingMode || "rate";
         const targetSpendingBRL = this.params.targetSpendingBRL || 0;
@@ -517,7 +518,8 @@ class MonteCarloEngine {
             portfolioUSD *= (1 + usdReturn);
 
             // Add this year's IPCA-indexed contribution, split at the
-            // current-year FX
+            // current-year FX. IOF on the remittance is charged on the BRL
+            // amount sent abroad, so only the net converts to USD.
             const annualContributionBRL =
                 monthlyContributionBRL *
                 12 *
@@ -525,7 +527,9 @@ class MonteCarloEngine {
                 Math.pow(1 + contributionGrowthReal / 100, totalYear - 1);
             const contributionToUSD_BRL =
                 annualContributionBRL * (contributionSplitUSD / 100);
-            const contributionToUSD = contributionToUSD_BRL / currentFX;
+            const contributionToUSD =
+                (contributionToUSD_BRL * (1 - iofContribution / 100)) /
+                currentFX;
             const contributionToBRL =
                 annualContributionBRL * (1 - contributionSplitUSD / 100);
             portfolioUSD += contributionToUSD;
