@@ -82,6 +82,7 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                     accumulationYears: 0, // years of work/saving before withdrawals start
                     monthlyContributionBRL: 10000, // today's BRL; indexed by simulated IPCA each year
                     contributionSplitUSD: 80, // % of each contribution buying USD assets (rest → BRL sleeve)
+                    iofContribution: 0, // % IOF-câmbio on the USD part of each contribution
                     contributionGrowthReal: 0, // optional % a.a. real growth of savings capacity
                     // Spending-target mode (alternative to rate mode)
                     spendingMode: "rate", // 'rate' (SWR % as today) | 'target' (fixed real spending)
@@ -967,6 +968,23 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                                             step={5}
                                             tooltip="Percentual de cada aporte mensal destinado à parcela dolarizada (ETFs internacionais), convertido ao câmbio do ano corrente da simulação. O restante vai para a parcela em BRL (renda fixa brasileira). Como a conversão usa o câmbio simulado de cada ano, comprar dólares fica mais caro quando o real está fraco — efeito realista do 'dollar cost averaging' cambial."
                                         />
+                                        {params.sidebarMode === "advanced" && (
+                                            <Input
+                                                label="IOF na Remessa do Aporte"
+                                                value={params.iofContribution}
+                                                onChange={(v) =>
+                                                    updateParam(
+                                                        "iofContribution",
+                                                        v,
+                                                    )
+                                                }
+                                                unit="%"
+                                                min={0}
+                                                max={5}
+                                                step={0.1}
+                                                tooltip="IOF-câmbio cobrado sobre a parte em USD de cada aporte, antes da conversão. Desde o Decreto 12.499/2025, o art. 15-B do Decreto 6.306/2007 prevê 1,1% na remessa com finalidade de investimento (inciso XXI-A) e 3,5% nas demais transferências ao exterior (inciso XXIV). A alíquota da sua remessa depende de como a corretora ou o banco classifica a operação. Zero desliga o custo. Não afeta os saques."
+                                            />
+                                        )}
                                         <Input
                                             label="Crescimento Real dos Aportes"
                                             value={
@@ -1928,7 +1946,7 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                                                         min={0}
                                                         max={30}
                                                         step={1}
-                                                        tooltip="Alíquota de IR sobre GANHOS de capital em ETFs irlandeses (não sobre principal). ETFs irlandeses (UCITS) são tributados a 15% no Brasil sobre o ganho na venda. O modelo estima que a proporção de ganho aumenta ~6% ao ano até 60% máximo. Ex: ano 10 → ~60% do saque é ganho → IR = saque × 60% × 15%."
+                                                        tooltip="Alíquota de IR sobre GANHOS de capital em ETFs irlandeses (não sobre principal). ETFs irlandeses (UCITS) são tributados a 15% no Brasil sobre o ganho na venda (Lei 14.754/2023, art. 2º). Todo saque é tributado: desde 2024 a isenção de R$ 35 mil/mês não vale para aplicações no exterior (Solução de Consulta Cosit 130/2026). A lei mede o ganho em reais, incluindo a variação cambial sobre o principal (art. 3º, § 2º), mas o modelo não guarda custo de aquisição: estima que a proporção de ganho aumenta ~6% ao ano até 60% máximo. Ex: ano 10 → ~60% do saque é ganho → IR = saque × 60% × 15%. Não modelados: tributação mínima de altas rendas e retenção sobre dividendos (Lei 15.270/2025) e ITCMD (LC 227/2026). Revisão: nov/2026. Detalhes no README."
                                                     />
                                                     <Input
                                                         label="IR Renda Fixa BR"
