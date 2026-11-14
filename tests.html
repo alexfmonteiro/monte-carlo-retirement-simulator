@@ -1942,6 +1942,48 @@
             });
         });
 
+        tf.describe('Accumulation Phase: IOF on Contributions', () => {
+            // USD sleeve starts at 0, so it holds only contributions and their
+            // growth. IOF scales every USD contribution by (1 - iof) and draws
+            // no random numbers, so the same seed scales the whole sleeve.
+            const base = {
+                ...getDefaultParams(),
+                seed: 91,
+                initialPortfolioUSD: 0,
+                initialPortfolioBRL: 500000,
+                useAccumulation: true,
+                accumulationYears: 4,
+                monthlyContributionBRL: 10000,
+                contributionSplitUSD: 70,
+                years: 5,
+            };
+
+            tf.it('iofContribution scales the USD sleeve by (1 - iof) and leaves the BRL sleeve alone', () => {
+                const n = base.accumulationYears;
+                const h0 = new MonteCarloEngine({ ...base, iofContribution: 0 }).runSimulation();
+                const h1 = new MonteCarloEngine({ ...base, iofContribution: 1.1 }).runSimulation();
+                for (let k = 1; k <= n; k++) {
+                    assertAlmostEqual(
+                        h1.portfolioUSD[k], h0.portfolioUSD[k] * (1 - 0.011), h0.portfolioUSD[k] * 1e-9,
+                        `year ${k}: USD sleeve should be ${(h0.portfolioUSD[k] * 0.989).toFixed(2)}, got ${h1.portfolioUSD[k].toFixed(2)}`
+                    );
+                    assertAlmostEqual(
+                        h1.portfolioBRL[k] - h1.portfolioUSD[k] * h1.fxRate[k],
+                        h0.portfolioBRL[k] - h0.portfolioUSD[k] * h0.fxRate[k],
+                        1e-3,
+                        `year ${k}: BRL sleeve should not change`
+                    );
+                }
+            });
+
+            tf.it('missing iofContribution behaves as 0', () => {
+                const { iofContribution, ...noIof } = base;
+                const hMissing = new MonteCarloEngine(noIof).runSimulation();
+                const hZero = new MonteCarloEngine({ ...base, iofContribution: 0 }).runSimulation();
+                assertAlmostEqual(hMissing.portfolioBRL[base.accumulationYears], hZero.portfolioBRL[base.accumulationYears], 1e-6);
+            });
+        });
+
         tf.describe('Accumulation Phase: Boundary Correctness', () => {
             const n = 4;
             const retirementYears = 10;
