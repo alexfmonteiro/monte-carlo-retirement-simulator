@@ -185,8 +185,12 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                         1,
                         100 - (params.currentAge || 60),
                     );
+                    // One seed for the SHTF card and the sweep, so the
+                    // seed shown on the tab reproduces both.
+                    const engine = new MonteCarloEngine(params);
                     const shtfParams = {
                         ...params,
+                        seed: engine.getSeed(),
                         useAccumulation: true,
                         accumulationYears: 0,
                         years: horizonYears,
@@ -201,7 +205,6 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                             shtfRun.survivalRate,
                     });
 
-                    const engine = new MonteCarloEngine(params);
                     const sweep = await engine.runRetirementAgeSweep({
                         ...sweepOptions,
                         onProgress: (p) => setProjectionProgress(p),
@@ -2882,14 +2885,34 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                                             </button>
                                         )}
                                         {activeResultsTab === "projection" && projectionResults && (
-                                            <button
-                                                onClick={runProjectionSweep}
-                                                disabled={isRunningProjection}
-                                                className="text-xs text-gray-400 hover:text-emerald-400 transition-colors flex items-center gap-1"
-                                            >
-                                                <Icon name="RefreshCw" size={12} />
-                                                Recalcular
-                                            </button>
+                                            <div className="flex items-center gap-3 text-xs">
+                                                <span className="text-gray-400">
+                                                    Seed:{" "}
+                                                    <span className="font-mono text-info">
+                                                        {projectionResults.seed}
+                                                    </span>
+                                                </span>
+                                                <button
+                                                    onClick={() => {
+                                                        navigator.clipboard.writeText(
+                                                            projectionResults.seed.toString(),
+                                                        );
+                                                    }}
+                                                    className="text-gray-500 hover:text-emerald-400 transition-colors flex items-center gap-1"
+                                                    title="Copiar seed"
+                                                >
+                                                    <Icon name="Copy" size={12} />
+                                                    Copiar
+                                                </button>
+                                                <button
+                                                    onClick={runProjectionSweep}
+                                                    disabled={isRunningProjection}
+                                                    className="text-gray-400 hover:text-emerald-400 transition-colors flex items-center gap-1"
+                                                >
+                                                    <Icon name="RefreshCw" size={12} />
+                                                    Recalcular
+                                                </button>
+                                            </div>
                                         )}
                                     </div>
 
