@@ -1,0 +1,371 @@
+<!doctype html>
+<html lang="pt-BR">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Taxa de retirada segura para quem gasta em reais e investe em dólares</title>
+        <script src="https://cdn.tailwindcss.com"></script>
+        <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+        <link
+            href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Outfit:wght@300;400;500;600;700&display=swap"
+            rel="stylesheet"
+        />
+        <script>
+            tailwind.config = {
+                theme: {
+                    extend: {
+                        fontFamily: {
+                            display: ["Outfit", "sans-serif"],
+                            mono: ["JetBrains Mono", "monospace"],
+                        },
+                        colors: {
+                            midnight: "#0a0e17",
+                            deep: "#111827",
+                            surface: "#1a2234",
+                            accent: "#10b981",
+                            warning: "#f59e0b",
+                        },
+                    },
+                },
+            };
+        </script>
+        <style>
+            .chart-container {
+                position: relative;
+                height: 320px;
+            }
+            .num {
+                font-family: "JetBrains Mono", monospace;
+                font-variant-numeric: tabular-nums;
+            }
+        </style>
+    </head>
+    <body class="bg-midnight text-gray-100 font-display min-h-screen">
+        <main class="max-w-5xl mx-auto px-4 py-10 space-y-10">
+            <header class="space-y-3">
+                <p class="text-sm text-gray-400">
+                    <a href="index.html" class="text-accent hover:underline">← Simulador</a>
+                </p>
+                <h1 class="text-3xl font-semibold">
+                    Taxa de retirada segura para quem gasta em reais e investe em dólares
+                </h1>
+                <p class="text-gray-300">
+                    Qual a maior retirada inicial, em % da carteira, que sobrevive ao horizonte em
+                    90% e 95% das simulações, quando os gastos são em BRL corrigidos pelo IPCA e
+                    parte da carteira está em ativos dolarizados?
+                </p>
+            </header>
+
+            <section class="border border-warning/40 bg-warning/10 rounded-lg p-4 text-sm text-gray-200">
+                Ferramenta educacional e de planejamento. Não é aconselhamento financeiro. Os
+                números abaixo são o resultado de uma simulação com as premissas descritas nesta
+                página, não uma recomendação. Consulte um profissional certificado antes de
+                decisões de investimento.
+            </section>
+
+            <section id="error" class="hidden border border-red-500/40 bg-red-500/10 rounded-lg p-4 text-sm">
+                Não foi possível carregar <code>estudo-swr.json</code>. Sirva a pasta por HTTP
+                (<code>python -m http.server 8000</code>) em vez de abrir o arquivo direto.
+            </section>
+
+            <section class="space-y-4">
+                <h2 class="text-xl font-semibold">Parcela em dólar e horizonte</h2>
+                <p id="chart1-caption" class="text-sm text-gray-400"></p>
+                <div class="bg-surface rounded-lg p-4">
+                    <div class="chart-container"><canvas id="chart1"></canvas></div>
+                </div>
+            </section>
+
+            <section class="space-y-4">
+                <h2 class="text-xl font-semibold">Guyton-Klinger e mortalidade</h2>
+                <p id="chart2-caption" class="text-sm text-gray-400"></p>
+                <div class="bg-surface rounded-lg p-4">
+                    <div class="chart-container"><canvas id="chart2"></canvas></div>
+                </div>
+            </section>
+
+            <section class="space-y-4">
+                <h2 class="text-xl font-semibold">Tabela completa</h2>
+                <p class="text-sm text-gray-400">
+                    Taxa de retirada inicial (% da carteira por ano) que atinge cada meta de
+                    sobrevivência. "Bruta" conta toda carteira esgotada como falha. "Ajustada"
+                    pondera cada falha pela chance de a pessoa já ter morrido no ano da falha. O
+                    link abre o simulador com os parâmetros da linha, a mesma semente e a taxa de 95% bruta.
+                </p>
+                <div class="overflow-x-auto bg-surface rounded-lg">
+                    <table class="w-full text-sm">
+                        <thead class="text-gray-400 text-left">
+                            <tr class="border-b border-gray-700">
+                                <th class="p-2">Horizonte</th>
+                                <th class="p-2">Idade inicial</th>
+                                <th class="p-2">Ações no lado USD</th>
+                                <th class="p-2">Parcela em USD</th>
+                                <th class="p-2">Guyton-Klinger</th>
+                                <th class="p-2 text-right">90% bruta</th>
+                                <th class="p-2 text-right">95% bruta</th>
+                                <th class="p-2 text-right">90% ajustada</th>
+                                <th class="p-2 text-right">95% ajustada</th>
+                                <th class="p-2"></th>
+                            </tr>
+                        </thead>
+                        <tbody id="table-body"></tbody>
+                    </table>
+                </div>
+                <p id="cap-note" class="hidden text-xs text-gray-400"></p>
+            </section>
+
+            <section class="space-y-3 text-gray-300">
+                <h2 class="text-xl font-semibold text-gray-100">Método</h2>
+                <ul id="method" class="list-disc pl-6 space-y-2"></ul>
+            </section>
+
+            <section class="space-y-3">
+                <h2 class="text-xl font-semibold">Premissas e fontes</h2>
+                <div class="overflow-x-auto bg-surface rounded-lg">
+                    <table class="w-full text-sm">
+                        <thead class="text-gray-400 text-left">
+                            <tr class="border-b border-gray-700">
+                                <th class="p-2">Parâmetro</th>
+                                <th class="p-2 text-right">Valor</th>
+                                <th class="p-2">Fonte</th>
+                            </tr>
+                        </thead>
+                        <tbody id="params-body"></tbody>
+                    </table>
+                </div>
+            </section>
+
+            <section class="space-y-3 text-gray-300">
+                <h2 class="text-xl font-semibold text-gray-100">Limites do modelo</h2>
+                <ul class="list-disc pl-6 space-y-2">
+                    <li>
+                        A renda fixa em BRL rende IPCA + juro real quase sem volatilidade. O modelo
+                        não tem risco de crédito, marcação a mercado de títulos longos nem crise
+                        fiscal. Por isso, uma parcela maior em BRL aumenta a taxa segura nesta
+                        simulação. Esse resultado depende dessa premissa.
+                    </li>
+                    <li>
+                        O retorno das ações é nominal em USD. O câmbio volta para o valor justo de
+                        paridade de poder de compra (IPCA acumulado ÷ inflação americana
+                        acumulada), com choques correlacionados com a bolsa.
+                    </li>
+                    <li>
+                        Com Guyton-Klinger, a taxa da tabela é só a retirada do primeiro ano. As
+                        regras cortam o gasto em anos ruins, então a carteira sobrevive com
+                        retiradas iniciais maiores, mas o gasto real pode cair bastante.
+                    </li>
+                    <li>
+                        Sem INSS, sem piso de gasto, sem estratégia de baldes, sem glide path e sem
+                        fase de acumulação. Cada um desses itens muda o resultado, e o simulador
+                        permite ligá-los.
+                    </li>
+                    <li>
+                        O imposto é uma aproximação: alíquota fixa sobre a parcela de ganho de cada
+                        venda, que cresce com os anos de retirada até um teto.
+                    </li>
+                    <li>
+                        Retornos anuais independentes (T-Student). Não há troca de regime nem
+                        restrição de sequências negativas. As premissas são um retrato de jul/2026
+                        e envelhecem.
+                    </li>
+                    <li>
+                        A busca supõe que a sobrevivência cai quando a taxa sobe. Com um número
+                        finito de simulações, a taxa encontrada tem um erro de amostragem de
+                        alguns décimos de ponto.
+                    </li>
+                </ul>
+            </section>
+
+            <section class="space-y-3 text-gray-300">
+                <h2 class="text-xl font-semibold text-gray-100">Como reproduzir</h2>
+                <p>
+                    Todos os números desta página vêm de <code>estudo-swr.json</code>, gerado pelo
+                    script abaixo. A semente é fixa, então duas execuções geram o mesmo arquivo.
+                </p>
+                <pre class="bg-surface rounded-lg p-4 text-sm overflow-x-auto"><code>node scripts/estudo-swr.js          # gera estudo-swr.json
+node scripts/estudo-swr.js --check  # confere se o arquivo publicado bate com uma nova execução</code></pre>
+            </section>
+        </main>
+
+        <script>
+            // Dark-surface categorical steps, fixed order (validated on #1a2234).
+            const COLORS = ["#3987e5", "#d95926", "#199e70", "#c98500"];
+            const INK = "#d1d5db";
+            const GRID_COLOR = "rgba(255,255,255,0.08)";
+
+            const PARAM_LABELS = {
+                initialFX: ["Câmbio inicial (R$/US$)", ""],
+                equityReturn: ["Retorno esperado das ações (USD, nominal)", "% a.a."],
+                equityVolatility: ["Volatilidade das ações", "% a.a."],
+                degreesOfFreedom: ["Graus de liberdade (T-Student)", ""],
+                baseCorrelation: ["Correlação base câmbio × bolsa", ""],
+                stressCorrelationMultiplier: ["Multiplicador da correlação em stress", "×"],
+                expectedIPCA: ["IPCA esperado", "% a.a."],
+                ipcaVolatility: ["Volatilidade do IPCA", "p.p."],
+                realSpread: ["Juro real da renda fixa BRL", "% a.a."],
+                usdInflation: ["Inflação americana", "% a.a."],
+                usdBondReturn: ["Retorno da renda fixa USD", "% a.a."],
+                usdBondVolatility: ["Volatilidade da renda fixa USD", "% a.a."],
+                equityTaxRate: ["IR sobre ganho em ações", "%"],
+                fixedIncomeTaxRate: ["IR sobre renda fixa", "%"],
+                mortalityGender: ["Tábua de mortalidade", ""],
+            };
+
+            const fmt = (x, digits = 1) =>
+                x.toLocaleString("pt-BR", { minimumFractionDigits: digits, maximumFractionDigits: digits });
+            const fmtRate = (s) => `${s.capped ? "≥ " : ""}${fmt(s.rate)}%`;
+            const el = (id) => document.getElementById(id);
+
+            function barChart(canvas, labels, datasets) {
+                new Chart(canvas, {
+                    type: "bar",
+                    data: {
+                        labels,
+                        datasets: datasets.map((d, i) => ({
+                            ...d,
+                            backgroundColor: COLORS[i],
+                            borderColor: "#1a2234",
+                            borderWidth: 2,
+                            borderRadius: 4,
+                            borderSkipped: "bottom",
+                        })),
+                    },
+                    options: {
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: { labels: { color: INK } },
+                            tooltip: {
+                                callbacks: { label: (c) => `${c.dataset.label}: ${fmt(c.parsed.y)}%` },
+                            },
+                        },
+                        scales: {
+                            x: { ticks: { color: INK }, grid: { display: false } },
+                            y: {
+                                beginAtZero: true,
+                                ticks: { color: INK, callback: (v) => `${fmt(v)}%` },
+                                grid: { color: GRID_COLOR },
+                                title: { display: true, text: "Retirada inicial (% da carteira)", color: INK },
+                            },
+                        },
+                    },
+                });
+            }
+
+            function render(data) {
+                const { rows, grid, method, baseParams, sources } = data;
+                const find = (h, eq, usd, gk) =>
+                    rows.find(
+                        (r) =>
+                            r.horizonYears === h &&
+                            r.equityPercent === eq &&
+                            r.usdPercent === usd &&
+                            r.guytonKlinger === gk,
+                    );
+                const horizonLabels = grid.horizonYears.map((h) => `${h} anos`);
+                // Middle equity share and the all-USD case as the chart baselines.
+                const eq = grid.equityPercent[Math.floor(grid.equityPercent.length / 2)];
+                const usdMax = Math.max(...grid.usdPercent);
+
+                el("chart1-caption").textContent =
+                    `Taxa que sobrevive em 95% das simulações (bruta), sem Guyton-Klinger, com ${eq}% ` +
+                    `de ações no lado em dólar. Cada barra é uma parcela da carteira em USD; o resto ` +
+                    `fica em renda fixa BRL.`;
+                barChart(
+                    el("chart1"),
+                    horizonLabels,
+                    grid.usdPercent.map((usd) => ({
+                        label: `${usd}% em USD`,
+                        data: grid.horizonYears.map((h) => find(h, eq, usd, false).swr.raw95.rate),
+                    })),
+                );
+
+                el("chart2-caption").textContent =
+                    `Taxa a 95% de sobrevivência, com ${usdMax}% da carteira em USD e ${eq}% de ` +
+                    `ações no lado em dólar.`;
+                const series = [
+                    ["Sem G-K, bruta", false, "raw95"],
+                    ["Sem G-K, ajustada", false, "adjusted95"],
+                    ["Com G-K, bruta", true, "raw95"],
+                    ["Com G-K, ajustada", true, "adjusted95"],
+                ];
+                barChart(
+                    el("chart2"),
+                    horizonLabels,
+                    series.map(([label, gk, key]) => ({
+                        label,
+                        data: grid.horizonYears.map((h) => find(h, eq, usdMax, gk).swr[key].rate),
+                    })),
+                );
+
+                let anyCapped = false;
+                el("table-body").innerHTML = rows
+                    .map((r) => {
+                        const cells = ["raw90", "raw95", "adjusted90", "adjusted95"].map((k) => {
+                            anyCapped ||= r.swr[k].capped;
+                            return `<td class="p-2 text-right num">${fmtRate(r.swr[k])}</td>`;
+                        });
+                        return `<tr class="border-b border-gray-800 hover:bg-white/5">
+                            <td class="p-2 num">${r.horizonYears} anos</td>
+                            <td class="p-2 num">${r.startAge}</td>
+                            <td class="p-2 num">${r.equityPercent}%</td>
+                            <td class="p-2 num">${r.usdPercent}%</td>
+                            <td class="p-2">${r.guytonKlinger ? "Sim" : "Não"}</td>
+                            ${cells.join("")}
+                            <td class="p-2"><a class="text-accent hover:underline whitespace-nowrap"
+                                href="index.html?${r.simulatorQuery}">Simular</a></td>
+                        </tr>`;
+                    })
+                    .join("");
+                if (anyCapped) {
+                    el("cap-note").textContent =
+                        `"≥" indica que a meta foi atingida no teto da busca (${fmt(method.maxRate)}%).`;
+                    el("cap-note").classList.remove("hidden");
+                }
+
+                const methodItems = [
+                    `Motor do simulador (<code>js/engine-core.js</code>), ${method.iterations.toLocaleString("pt-BR")} ` +
+                        `simulações por ponto, semente fixa ${method.seed}.`,
+                    `Grade: horizonte de ${grid.horizonYears.join(", ")} anos; ações em ` +
+                        `${grid.equityPercent.join(", ")}% do lado em dólar (o resto em renda fixa USD); ` +
+                        `${grid.usdPercent.join(", ")}% da carteira em USD (o resto em renda fixa BRL); ` +
+                        `com e sem Guyton-Klinger.`,
+                    `A idade inicial é ${method.endAge} menos o horizonte, então todo horizonte termina ` +
+                        `aos ${method.endAge} anos. A idade só afeta a taxa ajustada por mortalidade.`,
+                    `O gasto é em BRL, corrigido pelo IPCA simulado. Os saques usam primeiro a renda ` +
+                        `fixa BRL e depois o lado em dólar, ao câmbio do ano. Falha é quando os dois lados ` +
+                        `se esgotam.`,
+                    `Busca binária da maior taxa, em passos de ${fmt(method.rateStep)} p.p. até ` +
+                        `${fmt(method.maxRate)}%, que atinge ${method.targets.join("% e ")}% de sobrevivência.`,
+                    `Carteira de R$ ${method.totalPortfolioBRL.toLocaleString("pt-BR")}. Sem piso de ` +
+                        `gasto e sem INSS, a taxa não depende do tamanho da carteira.`,
+                ];
+                el("method").innerHTML = methodItems.map((t) => `<li>${t}</li>`).join("");
+
+                el("params-body").innerHTML = Object.entries(PARAM_LABELS)
+                    .map(([key, [label, unit]]) => {
+                        const v = baseParams[key];
+                        const value =
+                            key === "mortalityGender"
+                                ? "IBGE 2023, homem"
+                                : `${v.toLocaleString("pt-BR", { maximumFractionDigits: 2 })}${unit ? " " + unit : ""}`;
+                        return `<tr class="border-b border-gray-800 align-top">
+                            <td class="p-2">${label}</td>
+                            <td class="p-2 text-right num whitespace-nowrap">${value}</td>
+                            <td class="p-2 text-gray-400">${sources[key] || ""}</td>
+                        </tr>`;
+                    })
+                    .join("");
+            }
+
+            fetch("estudo-swr.json")
+                .then((r) => {
+                    if (!r.ok) throw new Error(r.statusText);
+                    return r.json();
+                })
+                .then(render)
+                .catch(() => el("error").classList.remove("hidden"));
+        </script>
+    </body>
+</html>
