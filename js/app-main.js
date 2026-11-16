@@ -689,9 +689,6 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                     lines.push("");
                     lines.push("======================================");
                     lines.push("Gerado por Monte Carlo Retirement Simulator");
-                    lines.push(
-                        "https://github.com/alexfmonteiro/monte-carlo-retirement-simulator",
-                    );
 
                     const text = lines.join("\n");
                     const blob = new Blob([text], {
@@ -733,15 +730,6 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
                                 <p className="text-xs text-gray-500">
                                     Simulador de Aposentadoria SWR
                                 </p>
-                                <a
-                                    href="https://github.com/alexfmonteiro/monte-carlo-retirement-simulator"
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="flex items-center gap-1 text-xs text-gray-500 hover:text-accent transition-colors mt-1"
-                                >
-                                    <Icon name="Github" size={14} />
-                                    <span>GitHub</span>
-                                </a>
                                 <a
                                     href="endowment.html"
                                     className="flex items-center gap-1 text-xs text-purple-400 hover:text-purple-300 transition-colors mt-1"
